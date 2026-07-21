@@ -1,0 +1,43 @@
+name: Pull Request
+
+on:
+  pull_request:
+    branches:
+      - main
+
+env:
+  TURBO_NO_UPDATE_NOTIFIER: "true"
+  TURBO_TELEMETRY_MESSAGE_DISABLED: "true"
+
+jobs:
+  type-check:
+    name: Type Check
+    runs-on: ubuntu-latest
+    env:
+      TURBO_FILTER: ${{ github.event_name == 'pull_request' && 'origin/' || '' }}${{ github.event.pull_request.base.ref || 'HEAD^1' }}...HEAD
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run type-check -- --filter="...[${{ env.TURBO_FILTER }}]"
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    env:
+      TURBO_FILTER: ${{ github.event_name == 'pull_request' && 'origin/' || '' }}${{ github.event.pull_request.base.ref || 'HEAD^1' }}...HEAD
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx turbo run test --filter="...[${{ env.TURBO_FILTER }}]"
