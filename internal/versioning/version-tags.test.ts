@@ -40,6 +40,12 @@ describe('readDeclaredMajorVersion', () => {
     await writeFile(join(dir, 'version.yml'), 'version: abc\n')
     await expect(readDeclaredMajorVersion(dir)).rejects.toThrow(/invalid/)
   })
+
+  test('throws when the version field is a non-integer decimal string', async () => {
+    const dir = await tmpActionDir()
+    await writeFile(join(dir, 'version.yml'), "version: '2.9'\n")
+    await expect(readDeclaredMajorVersion(dir)).rejects.toThrow(/invalid/)
+  })
 })
 
 describe('computeNextVersion', () => {

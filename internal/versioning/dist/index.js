@@ -33071,9 +33071,7 @@ async function readDeclaredMajorVersion(dir) {
     if (declared === undefined || declared === null) {
         throw new Error(`${versionPath} is missing the required 'version' field`);
     }
-    const major = typeof declared === 'number'
-        ? declared
-        : Number.parseInt(String(declared), 10);
+    const major = typeof declared === 'number' ? declared : Number(declared);
     if (!Number.isInteger(major) || major < 1) {
         throw new Error(`${versionPath} has an invalid 'version' value: ${declared}`);
     }
