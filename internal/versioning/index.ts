@@ -12,9 +12,9 @@ import {
 } from '@actions/core'
 import * as github from '@actions/github'
 import semver from 'semver'
-import { computeNextVersion, readDeclaredMajorVersion } from './version-tags.js'
 import { listChangedFiles } from './changed-files.js'
 import { mapWithConcurrency } from './concurrency.js'
+import { computeNextVersion, readDeclaredMajorVersion } from './version-tags.js'
 
 interface VersionedAction {
   name: string
