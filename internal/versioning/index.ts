@@ -13,6 +13,7 @@ import {
 import * as github from '@actions/github'
 import semver from 'semver'
 import { computeNextVersion, readDeclaredMajorVersion } from './version-tags.js'
+import { listChangedFiles } from './changed-files.js'
 
 interface VersionedAction {
   name: string
@@ -176,13 +177,13 @@ async function run() {
       info('Run for all enabled, getting all action files')
       files = await getAllFiles()
     } else {
-      const response = await octokit.rest.repos.compareCommits({
+      files = await listChangedFiles({
+        octokit,
         owner: context.repo.owner,
         repo: context.repo.repo,
         base: context.payload.before,
         head: context.payload.after,
       })
-      files = (response.data.files || []).map((file) => file.filename)
     }
 
     info(`Changed Files: ${files.join(', ')}`)

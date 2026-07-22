@@ -32732,6 +32732,22 @@ function wrappy (fn, cb) {
 
 /***/ }),
 
+/***/ 3469:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.listChangedFiles = listChangedFiles;
+async function listChangedFiles(params) {
+    const { octokit, owner, repo, base, head } = params;
+    const files = await octokit.paginate(octokit.rest.repos.compareCommits, { owner, repo, base, head, per_page: 100 }, (response) => response.data.files ?? []);
+    return files.map((file) => file.filename);
+}
+
+
+/***/ }),
+
 /***/ 5183:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -32781,6 +32797,7 @@ const core_1 = __nccwpck_require__(7184);
 const github = __importStar(__nccwpck_require__(5683));
 const semver_1 = __importDefault(__nccwpck_require__(84));
 const version_tags_js_1 = __nccwpck_require__(5637);
+const changed_files_js_1 = __nccwpck_require__(3469);
 const createOrBumpRef = async (params) => {
     const { repo, owner, action, version, sha, octokit } = params;
     try {
@@ -32909,13 +32926,13 @@ async function run() {
             files = await getAllFiles();
         }
         else {
-            const response = await octokit.rest.repos.compareCommits({
+            files = await (0, changed_files_js_1.listChangedFiles)({
+                octokit,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 base: context.payload.before,
                 head: context.payload.after,
             });
-            files = (response.data.files || []).map((file) => file.filename);
         }
         (0, core_1.info)(`Changed Files: ${files.join(', ')}`);
         const modifiedActions = new Set();
