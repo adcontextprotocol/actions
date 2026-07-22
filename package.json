@@ -12,7 +12,8 @@
   },
   "workspaces": [
     "./ladon/setup",
-    "./ladon/arbiter"
+    "./ladon/arbiter",
+    "./internal/versioning"
   ],
   "lint-staged": {
     "*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx,json,jsonc,css}": [
