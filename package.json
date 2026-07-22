@@ -1,0 +1,36 @@
+{
+  "name": "adcp-actions",
+  "private": true,
+  "description": "Reusable GitHub Actions for the Ad Context Protocol, including the Ladon PR reviewer.",
+  "scripts": {
+    "build": "npx turbo run build",
+    "format": "npx turbo run format",
+    "test": "npx turbo run test",
+    "type-check": "npx turbo run type-check",
+    "prepare": "husky",
+    "pre-commit": "npx turbo run build --filter=[HEAD]"
+  },
+  "workspaces": [
+    "./ladon/setup",
+    "./ladon/arbiter"
+  ],
+  "lint-staged": {
+    "*.{js,ts,cjs,mjs,d.cts,d.mts,jsx,tsx,json,jsonc,css}": [
+      "biome check --write --no-errors-on-unmatched"
+    ],
+    "*.@(yml|yaml)": "prettier --parser yaml --write",
+    "*.md": "prettier --parser markdown --write"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.1.2",
+    "@types/node": "^22.15.17",
+    "@vercel/ncc": "^0.38.4",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.1.2",
+    "prettier": "^3.6.2",
+    "turbo": "^2.8.3",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.1"
+  },
+  "packageManager": "npm@10.7.0"
+}
