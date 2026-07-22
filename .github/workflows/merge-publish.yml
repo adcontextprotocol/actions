@@ -11,7 +11,6 @@ on:
       - main
     paths-ignore:
       - 'internal/versioning/**'
-      - '**/*.md'
 
 permissions:
   contents: write
@@ -22,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v5
       - name: Run versioning script
         uses: ./internal/versioning
         with:

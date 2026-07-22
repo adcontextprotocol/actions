@@ -6,10 +6,6 @@ inputs:
     description: 'GitHub token with permissions to create tags'
     required: false
     default: ${{ github.token }}
-  majorVersion:
-    description: 'Force a major version bump for specified actions (comma-separated)'
-    required: false
-    default: ''
   dryRun:
     description: 'Dry run mode, will not create tags'
     required: false
