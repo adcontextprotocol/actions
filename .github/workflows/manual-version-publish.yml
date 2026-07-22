@@ -1,0 +1,40 @@
+name: Update Version Tags for Updated Actions
+
+# Manual counterpart to merge-publish. Use runForAll=true for the initial
+# tagging of every action, or `package` to (re)tag a single action. Run with
+# dryRun=true first to preview the tags that would be created.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dryRun:
+        description: 'Dry run (no tag creation)'
+        required: false
+        type: boolean
+        default: false
+      runForAll:
+        description: 'Publish new versions for all actions'
+        required: false
+        type: boolean
+        default: false
+      package:
+        description: 'Path to a single action to publish (e.g. ladon/setup)'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  update_version_tags:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Run versioning script
+        uses: ./internal/versioning
+        with:
+          dryRun: ${{ inputs.dryRun }}
+          runForAll: ${{ inputs.runForAll }}
+          package: ${{ inputs.package }}

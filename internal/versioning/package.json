@@ -1,0 +1,21 @@
+{
+  "name": "version-actions",
+  "version": "1.0.1",
+  "description": "Automatically version composite and TypeScript actions on merge to main",
+  "main": "dist/index.js",
+  "private": true,
+  "scripts": {
+    "build": "../../node_modules/.bin/ncc build index.ts",
+    "format": "../../node_modules/.bin/biome format --write index.ts",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/github": "^6.0.1",
+    "semver": "^7.5.4",
+    "yaml": "^2.8.3"
+  },
+  "devDependencies": {
+    "@types/semver": "^7.7.0"
+  }
+}

@@ -1,0 +1,30 @@
+name: Publish Updated Actions
+
+# On merge to main, create/advance the per-action version tags
+# (e.g. ladon/setup/v1, ladon/review/v1) for any action whose files changed.
+# TypeScript actions take their major version from package.json; composite
+# actions from version.yml. See internal/versioning.
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'internal/versioning/**'
+      - '**/*.md'
+
+permissions:
+  contents: write
+
+jobs:
+  update_version_tags:
+    name: Update version tags for changed actions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Run versioning script
+        uses: ./internal/versioning
+        with:
+          dryRun: false
+          runForAll: false
