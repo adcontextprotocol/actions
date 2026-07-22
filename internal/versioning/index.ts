@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
 import path from 'node:path'
 import {
   debug,
@@ -11,9 +11,8 @@ import {
   warning,
 } from '@actions/core'
 import * as github from '@actions/github'
-import type { SemVer } from 'semver'
 import semver from 'semver'
-import yaml from 'yaml'
+import { computeNextVersion, readDeclaredMajorVersion } from './version-tags.js'
 
 interface VersionedAction {
   name: string
@@ -134,112 +133,6 @@ async function getAllFiles(dir: string = process.cwd()) {
     .map((entry) => path.relative(dir, path.join(entry.parentPath, entry.name)))
 }
 
-async function getActionType(
-  dir: string,
-): Promise<{ type: 'composite' | 'typescript'; majorVersion: SemVer } | null> {
-  try {
-    debug(`[${dir}] [getActionType] reading files`)
-    const files = await readdir(dir)
-
-    const actionFile = files.find((file) =>
-      ['action.yml', 'action.yaml'].includes(file),
-    )
-
-    // we want to ignore the internal actions, like this one
-    if (!actionFile || actionFile.startsWith('internal/')) {
-      errorMsg(`Could not find action file in ${dir}`)
-      return null
-    }
-
-    const actionContent = await readFile(path.join(dir, actionFile), 'utf8')
-    const actionConfig = yaml.parse(actionContent)
-    debug(`[${dir}] [getActionType] ${actionConfig}`)
-    const type =
-      actionConfig.runs?.using === 'composite' ? 'composite' : 'typescript'
-    debug(`[${dir}] ${type}`)
-
-    // **
-    // * We use `version.yml` for composite actions, and the version entry in the "package.json" file for TypeScript actions.
-    // * This is to notate MAJOR versions, minor or patch versions are not notated.
-    // * For breaking changes, we should bump this version to the next MAJOR version to publish the major patch.
-    // **
-    if (type === 'typescript' && existsSync(path.join(dir, 'package.json'))) {
-      const packageJson = JSON.parse(
-        await readFile(path.join(dir, 'package.json'), 'utf8'),
-      )
-      const majorVersion = packageJson.version
-
-      info(`TypeScript action found at ${dir}, major version: ${majorVersion}`)
-
-      const parsedVersion = semver.parse(String(majorVersion), {
-        loose: true,
-      }) as SemVer
-
-      if (!parsedVersion) {
-        errorMsg(`[${dir}] Invalid Semver Version: ${majorVersion}`)
-        throw new Error(
-          `[${dir}] Invalid version format in package.json: ${packageJson.version}`,
-        )
-      }
-
-      return {
-        type,
-        majorVersion: parsedVersion,
-      }
-    }
-
-    let versionPath: null | string = null
-    for (const file of ['version.yml', 'version.yaml']) {
-      const filePath = path.join(dir, file)
-      if (existsSync(filePath)) {
-        versionPath = filePath
-        break
-      }
-    }
-
-    if (!versionPath) {
-      warning(`Version file not found for ${dir}`)
-      return null
-    }
-
-    if (type === 'composite' && versionPath) {
-      const versionFile = await readFile(versionPath, 'utf8')
-      debug(versionFile.toString())
-      const version = yaml.parse(versionFile.toString()).version
-      info(`[${dir}] ${version}`)
-      if (version) {
-        const majorVersion =
-          typeof version === 'number' ? version : Number.parseInt(version)
-
-        if (Number.isNaN(majorVersion)) {
-          errorMsg(`[${dir}] Invalid version: ${majorVersion}`)
-          throw new Error(`Invalid version: ${majorVersion}`)
-        }
-
-        const parsedVersion = semver.parse(`${majorVersion}.0.0`, {
-          loose: true,
-        }) as SemVer
-
-        if (!parsedVersion) {
-          warning(`[${dir}] Invalid Semver Version: ${majorVersion}`)
-          return null
-        }
-
-        return {
-          type,
-          majorVersion: parsedVersion,
-        }
-      }
-      warning(`Version file found, but version attribute is missing for ${dir}`)
-    }
-
-    return null
-  } catch (error: unknown) {
-    warning(`Failed to determine action type: ${(error as Error).message}`)
-    return null
-  }
-}
-
 async function run() {
   try {
     const token = getInput('token')
@@ -316,29 +209,7 @@ async function run() {
           async (action): Promise<VersionedAction | null> => {
             info(`Processing action: ${action}`)
 
-            const actionInfo = await getActionType(action)
-            if (!actionInfo) {
-              warning(
-                `Could not determine action type for ${action}, skipping...`,
-              )
-              return null
-            }
-            const { type: actionType, majorVersion: activeMajorVersion } =
-              actionInfo
-
-            if (!actionType) {
-              warning(
-                `Could not determine action type for ${action}, skipping...`,
-              )
-              return null
-            }
-
-            if (!activeMajorVersion) {
-              warning(
-                `Could not determine major version for ${action}, skipping...`,
-              )
-              return null
-            }
+            const activeMajorVersion = await readDeclaredMajorVersion(action)
 
             const { data: tags } = await octokit.rest.git.listMatchingRefs({
               owner: context.repo.owner,
@@ -367,28 +238,13 @@ async function run() {
               )
             }
 
-            let newVersion: null | string = null
-            if (actionTags.length === 0) {
-              newVersion = '1.0.0'
-            } else {
-              const currentVersion = actionTags[0].version
-              info(`[${action}] Current Version ${currentVersion}`)
-              if (semver.compare(currentVersion, activeMajorVersion) < 0) {
-                newVersion = semver.inc(currentVersion, 'major')
-              } else {
-                newVersion = semver.inc(currentVersion, 'patch')
-              }
-            }
-
-            if (!newVersion) {
-              throw new Error('Failed to determine new version')
-            }
-
             const previousVersion =
               actionTags.length > 0 ? actionTags[0].version : null
-            const isMajor =
-              previousVersion !== null &&
-              semver.compare(previousVersion, activeMajorVersion) < 0
+            info(`[${action}] Current Version ${previousVersion ?? '(none)'}`)
+            const { version: newVersion, isMajor } = computeNextVersion({
+              currentVersion: previousVersion,
+              declaredMajor: activeMajorVersion,
+            })
 
             const newTag = `${action}/v${newVersion}`
             !dryRun
@@ -448,7 +304,12 @@ async function run() {
               }
             }
 
-            return { name: action, version: newVersion, previousVersion, isMajor }
+            return {
+              name: action,
+              version: newVersion,
+              previousVersion,
+              isMajor,
+            }
           },
         ),
       )

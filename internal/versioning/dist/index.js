@@ -32780,7 +32780,7 @@ const node_path_1 = __importDefault(__nccwpck_require__(6760));
 const core_1 = __nccwpck_require__(7184);
 const github = __importStar(__nccwpck_require__(5683));
 const semver_1 = __importDefault(__nccwpck_require__(84));
-const yaml_1 = __importDefault(__nccwpck_require__(3483));
+const version_tags_js_1 = __nccwpck_require__(5637);
 const createOrBumpRef = async (params) => {
     const { repo, owner, action, version, sha, octokit } = params;
     try {
@@ -32871,86 +32871,6 @@ async function getAllFiles(dir = process.cwd()) {
         !IGNORED_EXTENSIONS.test(entry.name))
         .map((entry) => node_path_1.default.relative(dir, node_path_1.default.join(entry.parentPath, entry.name)));
 }
-async function getActionType(dir) {
-    try {
-        (0, core_1.debug)(`[${dir}] [getActionType] reading files`);
-        const files = await (0, promises_1.readdir)(dir);
-        const actionFile = files.find((file) => ['action.yml', 'action.yaml'].includes(file));
-        // we want to ignore the internal actions, like this one
-        if (!actionFile || actionFile.startsWith('internal/')) {
-            (0, core_1.error)(`Could not find action file in ${dir}`);
-            return null;
-        }
-        const actionContent = await (0, promises_1.readFile)(node_path_1.default.join(dir, actionFile), 'utf8');
-        const actionConfig = yaml_1.default.parse(actionContent);
-        (0, core_1.debug)(`[${dir}] [getActionType] ${actionConfig}`);
-        const type = actionConfig.runs?.using === 'composite' ? 'composite' : 'typescript';
-        (0, core_1.debug)(`[${dir}] ${type}`);
-        // **
-        // * We use `version.yml` for composite actions, and the version entry in the "package.json" file for TypeScript actions.
-        // * This is to notate MAJOR versions, minor or patch versions are not notated.
-        // * For breaking changes, we should bump this version to the next MAJOR version to publish the major patch.
-        // **
-        if (type === 'typescript' && (0, node_fs_1.existsSync)(node_path_1.default.join(dir, 'package.json'))) {
-            const packageJson = JSON.parse(await (0, promises_1.readFile)(node_path_1.default.join(dir, 'package.json'), 'utf8'));
-            const majorVersion = packageJson.version;
-            (0, core_1.info)(`TypeScript action found at ${dir}, major version: ${majorVersion}`);
-            const parsedVersion = semver_1.default.parse(String(majorVersion), {
-                loose: true,
-            });
-            if (!parsedVersion) {
-                (0, core_1.error)(`[${dir}] Invalid Semver Version: ${majorVersion}`);
-                throw new Error(`[${dir}] Invalid version format in package.json: ${packageJson.version}`);
-            }
-            return {
-                type,
-                majorVersion: parsedVersion,
-            };
-        }
-        let versionPath = null;
-        for (const file of ['version.yml', 'version.yaml']) {
-            const filePath = node_path_1.default.join(dir, file);
-            if ((0, node_fs_1.existsSync)(filePath)) {
-                versionPath = filePath;
-                break;
-            }
-        }
-        if (!versionPath) {
-            (0, core_1.warning)(`Version file not found for ${dir}`);
-            return null;
-        }
-        if (type === 'composite' && versionPath) {
-            const versionFile = await (0, promises_1.readFile)(versionPath, 'utf8');
-            (0, core_1.debug)(versionFile.toString());
-            const version = yaml_1.default.parse(versionFile.toString()).version;
-            (0, core_1.info)(`[${dir}] ${version}`);
-            if (version) {
-                const majorVersion = typeof version === 'number' ? version : Number.parseInt(version);
-                if (Number.isNaN(majorVersion)) {
-                    (0, core_1.error)(`[${dir}] Invalid version: ${majorVersion}`);
-                    throw new Error(`Invalid version: ${majorVersion}`);
-                }
-                const parsedVersion = semver_1.default.parse(`${majorVersion}.0.0`, {
-                    loose: true,
-                });
-                if (!parsedVersion) {
-                    (0, core_1.warning)(`[${dir}] Invalid Semver Version: ${majorVersion}`);
-                    return null;
-                }
-                return {
-                    type,
-                    majorVersion: parsedVersion,
-                };
-            }
-            (0, core_1.warning)(`Version file found, but version attribute is missing for ${dir}`);
-        }
-        return null;
-    }
-    catch (error) {
-        (0, core_1.warning)(`Failed to determine action type: ${error.message}`);
-        return null;
-    }
-}
 async function run() {
     try {
         const token = (0, core_1.getInput)('token');
@@ -33014,20 +32934,7 @@ async function run() {
         (0, core_1.info)(`Modified Actions: ${Array.from(modifiedActions).join(', ')}`);
         const versionedActions = (await Promise.all(Array.from(modifiedActions).map(async (action) => {
             (0, core_1.info)(`Processing action: ${action}`);
-            const actionInfo = await getActionType(action);
-            if (!actionInfo) {
-                (0, core_1.warning)(`Could not determine action type for ${action}, skipping...`);
-                return null;
-            }
-            const { type: actionType, majorVersion: activeMajorVersion } = actionInfo;
-            if (!actionType) {
-                (0, core_1.warning)(`Could not determine action type for ${action}, skipping...`);
-                return null;
-            }
-            if (!activeMajorVersion) {
-                (0, core_1.warning)(`Could not determine major version for ${action}, skipping...`);
-                return null;
-            }
+            const activeMajorVersion = await (0, version_tags_js_1.readDeclaredMajorVersion)(action);
             const { data: tags } = await octokit.rest.git.listMatchingRefs({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -33048,26 +32955,12 @@ async function run() {
             if (actionTags.length) {
                 (0, core_1.info)(`Latest Tag: ${actionTags[0].name} (${actionTags[0].version})`);
             }
-            let newVersion = null;
-            if (actionTags.length === 0) {
-                newVersion = '1.0.0';
-            }
-            else {
-                const currentVersion = actionTags[0].version;
-                (0, core_1.info)(`[${action}] Current Version ${currentVersion}`);
-                if (semver_1.default.compare(currentVersion, activeMajorVersion) < 0) {
-                    newVersion = semver_1.default.inc(currentVersion, 'major');
-                }
-                else {
-                    newVersion = semver_1.default.inc(currentVersion, 'patch');
-                }
-            }
-            if (!newVersion) {
-                throw new Error('Failed to determine new version');
-            }
             const previousVersion = actionTags.length > 0 ? actionTags[0].version : null;
-            const isMajor = previousVersion !== null &&
-                semver_1.default.compare(previousVersion, activeMajorVersion) < 0;
+            (0, core_1.info)(`[${action}] Current Version ${previousVersion ?? '(none)'}`);
+            const { version: newVersion, isMajor } = (0, version_tags_js_1.computeNextVersion)({
+                currentVersion: previousVersion,
+                declaredMajor: activeMajorVersion,
+            });
             const newTag = `${action}/v${newVersion}`;
             !dryRun
                 ? await createOrBumpRef({
@@ -33126,7 +33019,12 @@ async function run() {
                     }
                 }
             }
-            return { name: action, version: newVersion, previousVersion, isMajor };
+            return {
+                name: action,
+                version: newVersion,
+                previousVersion,
+                isMajor,
+            };
         }))).filter((r) => r !== null);
         (0, core_1.setOutput)('versioned-actions', dryRun ? '[]' : JSON.stringify(versionedActions));
     }
@@ -33136,6 +33034,69 @@ async function run() {
     }
 }
 run();
+
+
+/***/ }),
+
+/***/ 5637:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.readDeclaredMajorVersion = readDeclaredMajorVersion;
+exports.computeNextVersion = computeNextVersion;
+const node_fs_1 = __nccwpck_require__(3024);
+const promises_1 = __nccwpck_require__(1455);
+const node_path_1 = __importDefault(__nccwpck_require__(6760));
+const semver_1 = __importDefault(__nccwpck_require__(84));
+const yaml_1 = __importDefault(__nccwpck_require__(3483));
+async function readDeclaredMajorVersion(dir) {
+    let versionPath = null;
+    for (const file of ['version.yml', 'version.yaml']) {
+        const candidate = node_path_1.default.join(dir, file);
+        if ((0, node_fs_1.existsSync)(candidate)) {
+            versionPath = candidate;
+            break;
+        }
+    }
+    if (!versionPath) {
+        throw new Error(`${dir} has no version.yml — declare a major version there (e.g. "version: 1") so a tag can be cut.`);
+    }
+    const raw = await (0, promises_1.readFile)(versionPath, 'utf8');
+    const declared = yaml_1.default.parse(raw)?.version;
+    if (declared === undefined || declared === null) {
+        throw new Error(`${versionPath} is missing the required 'version' field`);
+    }
+    const major = typeof declared === 'number'
+        ? declared
+        : Number.parseInt(String(declared), 10);
+    if (!Number.isInteger(major) || major < 1) {
+        throw new Error(`${versionPath} has an invalid 'version' value: ${declared}`);
+    }
+    const parsed = semver_1.default.parse(`${major}.0.0`);
+    if (!parsed) {
+        throw new Error(`${versionPath} produced an unparseable version: ${major}.0.0`);
+    }
+    return parsed;
+}
+function computeNextVersion(params) {
+    const { currentVersion, declaredMajor } = params;
+    if (currentVersion === null) {
+        return { version: `${declaredMajor.major}.0.0`, isMajor: false };
+    }
+    const isMajor = semver_1.default.compare(currentVersion, declaredMajor) < 0;
+    const version = isMajor
+        ? semver_1.default.inc(currentVersion, 'major')
+        : semver_1.default.inc(currentVersion, 'patch');
+    if (!version) {
+        throw new Error(`Failed to compute next version from ${currentVersion}`);
+    }
+    return { version, isMajor };
+}
 
 
 /***/ }),

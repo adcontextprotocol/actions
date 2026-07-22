@@ -6,7 +6,8 @@
   "private": true,
   "scripts": {
     "build": "../../node_modules/.bin/ncc build index.ts",
-    "format": "../../node_modules/.bin/biome format --write index.ts",
+    "format": "../../node_modules/.bin/biome format --write .",
+    "test": "vitest run",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
@@ -16,6 +17,7 @@
     "yaml": "^2.8.3"
   },
   "devDependencies": {
-    "@types/semver": "^7.7.0"
+    "@types/semver": "^7.7.0",
+    "vitest": "^4.1.1"
   }
 }
