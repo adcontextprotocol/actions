@@ -81,7 +81,7 @@ runs:
 
     - name: Setup
       id: setup
-      uses: ./ladon/setup
+      uses: adcontextprotocol/actions/ladon/setup@ladon/setup/v1
       with:
         github-token: ${{ steps.app-token.outputs.token }}
         ladon-bot-login: ${{ steps.app-token.outputs.app-slug }}[bot]
@@ -105,7 +105,7 @@ runs:
     - name: Reviewer
       if: steps.setup.outputs.should-run == 'true'
       id: reviewer
-      uses: ./ladon/reviewer
+      uses: adcontextprotocol/actions/ladon/reviewer@ladon/reviewer/v1
       with:
         anthropic-api-key: ${{ inputs.anthropic-api-key }}
         github-token: ${{ steps.app-token.outputs.token }}
@@ -125,7 +125,7 @@ runs:
     - name: Arbiter
       if: steps.setup.outputs.should-run == 'true'
       id: arbiter
-      uses: ./ladon/arbiter
+      uses: adcontextprotocol/actions/ladon/arbiter@ladon/arbiter/v1
       with:
         anthropic-api-key: ${{ inputs.anthropic-api-key }}
         github-token: ${{ steps.app-token.outputs.token }}
