@@ -14,6 +14,7 @@ import * as github from '@actions/github'
 import semver from 'semver'
 import { computeNextVersion, readDeclaredMajorVersion } from './version-tags.js'
 import { listChangedFiles } from './changed-files.js'
+import { mapWithConcurrency } from './concurrency.js'
 
 interface VersionedAction {
   name: string
@@ -123,6 +124,7 @@ async function isActionDirectory(
 
 const IGNORED_DIRS = /\.git|\.github|node_modules|dist|__mocks__|internal/
 const IGNORED_EXTENSIONS = /\.(md|jsonc|sh|gitignore|nvmrc)$/
+const TAG_MUTATION_CONCURRENCY = 4
 async function getAllFiles(dir: string = process.cwd()) {
   return (await readdir(dir, { withFileTypes: true, recursive: true }))
     .filter(
@@ -205,114 +207,112 @@ async function run() {
     info(`Modified Actions: ${Array.from(modifiedActions).join(', ')}`)
 
     const versionedActions: VersionedAction[] = (
-      await Promise.all(
-        Array.from(modifiedActions).map(
-          async (action): Promise<VersionedAction | null> => {
-            info(`Processing action: ${action}`)
+      await mapWithConcurrency(
+        Array.from(modifiedActions),
+        TAG_MUTATION_CONCURRENCY,
+        async (action): Promise<VersionedAction | null> => {
+          info(`Processing action: ${action}`)
 
-            const activeMajorVersion = await readDeclaredMajorVersion(action)
+          const activeMajorVersion = await readDeclaredMajorVersion(action)
 
-            const { data: tags } = await octokit.rest.git.listMatchingRefs({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: `tags/${action}/v`,
-              headers: {
-                'X-GitHub-Api-Version': '2022-11-28',
-              },
-            })
+          const { data: tags } = await octokit.rest.git.listMatchingRefs({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            ref: `tags/${action}/v`,
+            headers: {
+              'X-GitHub-Api-Version': '2022-11-28',
+            },
+          })
 
-            info(`Existing tags: ${tags.map((tag) => tag.ref).join(', ')}`)
+          info(`Existing tags: ${tags.map((tag) => tag.ref).join(', ')}`)
 
-            const actionTags = tags
-              .filter((tag) => tag.ref.startsWith(`refs/tags/${action}/v`))
-              .map((tag) => ({
-                name: tag.ref.replace('refs/tags/', ''),
-                version: tag.ref.replace(`refs/tags/${action}/v`, ''),
-              }))
-              .filter((tag) => semver.valid(tag.version))
+          const actionTags = tags
+            .filter((tag) => tag.ref.startsWith(`refs/tags/${action}/v`))
+            .map((tag) => ({
+              name: tag.ref.replace('refs/tags/', ''),
+              version: tag.ref.replace(`refs/tags/${action}/v`, ''),
+            }))
+            .filter((tag) => semver.valid(tag.version))
 
-            actionTags.sort((a, b) => semver.rcompare(a.version, b.version))
+          actionTags.sort((a, b) => semver.rcompare(a.version, b.version))
 
-            if (actionTags.length) {
-              info(
-                `Latest Tag: ${actionTags[0].name} (${actionTags[0].version})`,
-              )
+          if (actionTags.length) {
+            info(`Latest Tag: ${actionTags[0].name} (${actionTags[0].version})`)
+          }
+
+          const previousVersion =
+            actionTags.length > 0 ? actionTags[0].version : null
+          info(`[${action}] Current Version ${previousVersion ?? '(none)'}`)
+          const { version: newVersion, isMajor } = computeNextVersion({
+            currentVersion: previousVersion,
+            declaredMajor: activeMajorVersion,
+          })
+
+          const newTag = `${action}/v${newVersion}`
+          !dryRun
+            ? await createOrBumpRef({
+                octokit,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                action,
+                version: newVersion,
+                sha: context.sha,
+              })
+            : info(`Dry run: Skipping tag creation for ${newTag}`)
+
+          if (newVersion) {
+            // Keep the floating major-version tag (e.g. v2) pointing at the
+            // latest patch so callers pinned to @v2 always get current code.
+            const majorVersion = `${action}/v${semver.major(newVersion)}`
+            info(`Updating floating tag ${majorVersion} to ${context.sha}`)
+
+            let floatingTagExists = false
+            try {
+              await octokit.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${majorVersion}`,
+              })
+              floatingTagExists = true
+            } catch {
+              // tag does not exist yet — will be created below
             }
 
-            const previousVersion =
-              actionTags.length > 0 ? actionTags[0].version : null
-            info(`[${action}] Current Version ${previousVersion ?? '(none)'}`)
-            const { version: newVersion, isMajor } = computeNextVersion({
-              currentVersion: previousVersion,
-              declaredMajor: activeMajorVersion,
-            })
-
-            const newTag = `${action}/v${newVersion}`
-            !dryRun
-              ? await createOrBumpRef({
-                  octokit,
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  action,
-                  version: newVersion,
-                  sha: context.sha,
-                })
-              : info(`Dry run: Skipping tag creation for ${newTag}`)
-
-            if (newVersion) {
-              // Keep the floating major-version tag (e.g. v2) pointing at the
-              // latest patch so callers pinned to @v2 always get current code.
-              const majorVersion = `${action}/v${semver.major(newVersion)}`
-              info(`Updating floating tag ${majorVersion} to ${context.sha}`)
-
-              let floatingTagExists = false
-              try {
-                await octokit.rest.git.getRef({
+            if (floatingTagExists) {
+              if (!dryRun) {
+                await octokit.rest.git.updateRef({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   ref: `tags/${majorVersion}`,
+                  sha: context.sha,
+                  force: true,
                 })
-                floatingTagExists = true
-              } catch {
-                // tag does not exist yet — will be created below
-              }
-
-              if (floatingTagExists) {
-                if (!dryRun) {
-                  await octokit.rest.git.updateRef({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    ref: `tags/${majorVersion}`,
-                    sha: context.sha,
-                    force: true,
-                  })
-                  info(`Updated floating tag ${majorVersion} to ${context.sha}`)
-                } else {
-                  info(`Dry run: Skipping tag update for ${majorVersion}`)
-                }
+                info(`Updated floating tag ${majorVersion} to ${context.sha}`)
               } else {
-                if (!dryRun) {
-                  await octokit.rest.git.createRef({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    ref: `refs/tags/${majorVersion}`,
-                    sha: context.sha,
-                  })
-                  info(`Created floating tag ${majorVersion} at ${context.sha}`)
-                } else {
-                  info(`Dry run: Skipping tag creation for ${majorVersion}`)
-                }
+                info(`Dry run: Skipping tag update for ${majorVersion}`)
+              }
+            } else {
+              if (!dryRun) {
+                await octokit.rest.git.createRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: `refs/tags/${majorVersion}`,
+                  sha: context.sha,
+                })
+                info(`Created floating tag ${majorVersion} at ${context.sha}`)
+              } else {
+                info(`Dry run: Skipping tag creation for ${majorVersion}`)
               }
             }
+          }
 
-            return {
-              name: action,
-              version: newVersion,
-              previousVersion,
-              isMajor,
-            }
-          },
-        ),
+          return {
+            name: action,
+            version: newVersion,
+            previousVersion,
+            isMajor,
+          }
+        },
       )
     ).filter((r): r is VersionedAction => r !== null)
 

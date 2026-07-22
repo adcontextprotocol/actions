@@ -32748,6 +32748,30 @@ async function listChangedFiles(params) {
 
 /***/ }),
 
+/***/ 5004:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.mapWithConcurrency = mapWithConcurrency;
+async function mapWithConcurrency(items, limit, fn) {
+    const results = new Array(items.length);
+    let cursor = 0;
+    async function worker() {
+        while (cursor < items.length) {
+            const index = cursor++;
+            results[index] = await fn(items[index], index);
+        }
+    }
+    const workerCount = Math.min(limit, items.length);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    return results;
+}
+
+
+/***/ }),
+
 /***/ 5183:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -32798,6 +32822,7 @@ const github = __importStar(__nccwpck_require__(5683));
 const semver_1 = __importDefault(__nccwpck_require__(84));
 const version_tags_js_1 = __nccwpck_require__(5637);
 const changed_files_js_1 = __nccwpck_require__(3469);
+const concurrency_js_1 = __nccwpck_require__(5004);
 const createOrBumpRef = async (params) => {
     const { repo, owner, action, version, sha, octokit } = params;
     try {
@@ -32881,6 +32906,7 @@ async function isActionDirectory(filePath, retries = 0) {
 }
 const IGNORED_DIRS = /\.git|\.github|node_modules|dist|__mocks__|internal/;
 const IGNORED_EXTENSIONS = /\.(md|jsonc|sh|gitignore|nvmrc)$/;
+const TAG_MUTATION_CONCURRENCY = 4;
 async function getAllFiles(dir = process.cwd()) {
     return (await (0, promises_1.readdir)(dir, { withFileTypes: true, recursive: true }))
         .filter((entry) => entry.isFile() &&
@@ -32949,7 +32975,7 @@ async function run() {
             return;
         }
         (0, core_1.info)(`Modified Actions: ${Array.from(modifiedActions).join(', ')}`);
-        const versionedActions = (await Promise.all(Array.from(modifiedActions).map(async (action) => {
+        const versionedActions = (await (0, concurrency_js_1.mapWithConcurrency)(Array.from(modifiedActions), TAG_MUTATION_CONCURRENCY, async (action) => {
             (0, core_1.info)(`Processing action: ${action}`);
             const activeMajorVersion = await (0, version_tags_js_1.readDeclaredMajorVersion)(action);
             const { data: tags } = await octokit.rest.git.listMatchingRefs({
@@ -33042,7 +33068,7 @@ async function run() {
                 previousVersion,
                 isMajor,
             };
-        }))).filter((r) => r !== null);
+        })).filter((r) => r !== null);
         (0, core_1.setOutput)('versioned-actions', dryRun ? '[]' : JSON.stringify(versionedActions));
     }
     catch (err) {
