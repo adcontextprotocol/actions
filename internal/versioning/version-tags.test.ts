@@ -73,6 +73,14 @@ describe('computeNextVersion', () => {
     ).toEqual({ version: '2.0.0', isMajor: true })
   })
 
+  test('major-bump targets the declared major, not current + 1', () => {
+    const declaredMajor = semver.parse('3.0.0')
+    if (!declaredMajor) throw new Error('bad test fixture')
+    expect(
+      computeNextVersion({ currentVersion: '1.4.2', declaredMajor }),
+    ).toEqual({ version: '3.0.0', isMajor: true })
+  })
+
   test('regression: a package.json-style 0.1.0->1.0.0 bump no longer forces a major (declared major is read from version.yml, not package.json)', () => {
     const declaredMajor = semver.parse('1.0.0')
     if (!declaredMajor) throw new Error('bad test fixture')

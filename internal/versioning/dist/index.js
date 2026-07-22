@@ -33128,13 +33128,14 @@ function computeNextVersion(params) {
         return { version: `${declaredMajor.major}.0.0`, isMajor: false };
     }
     const isMajor = semver_1.default.compare(currentVersion, declaredMajor) < 0;
-    const version = isMajor
-        ? semver_1.default.inc(currentVersion, 'major')
-        : semver_1.default.inc(currentVersion, 'patch');
+    if (isMajor) {
+        return { version: `${declaredMajor.major}.0.0`, isMajor: true };
+    }
+    const version = semver_1.default.inc(currentVersion, 'patch');
     if (!version) {
         throw new Error(`Failed to compute next version from ${currentVersion}`);
     }
-    return { version, isMajor };
+    return { version, isMajor: false };
 }
 
 
