@@ -32975,7 +32975,7 @@ async function run() {
             return;
         }
         (0, core_1.info)(`Modified Actions: ${Array.from(modifiedActions).join(', ')}`);
-        const versionedActions = (await (0, concurrency_js_1.mapWithConcurrency)(Array.from(modifiedActions), TAG_MUTATION_CONCURRENCY, async (action) => {
+        const versionedActions = await (0, concurrency_js_1.mapWithConcurrency)(Array.from(modifiedActions), TAG_MUTATION_CONCURRENCY, async (action) => {
             (0, core_1.info)(`Processing action: ${action}`);
             const activeMajorVersion = await (0, version_tags_js_1.readDeclaredMajorVersion)(action);
             const { data: tags } = await octokit.rest.git.listMatchingRefs({
@@ -33015,51 +33015,49 @@ async function run() {
                     sha: context.sha,
                 })
                 : (0, core_1.info)(`Dry run: Skipping tag creation for ${newTag}`);
-            if (newVersion) {
-                // Keep the floating major-version tag (e.g. v2) pointing at the
-                // latest patch so callers pinned to @v2 always get current code.
-                const majorVersion = `${action}/v${semver_1.default.major(newVersion)}`;
-                (0, core_1.info)(`Updating floating tag ${majorVersion} to ${context.sha}`);
-                let floatingTagExists = false;
-                try {
-                    await octokit.rest.git.getRef({
+            // Keep the floating major-version tag (e.g. v2) pointing at the
+            // latest patch so callers pinned to @v2 always get current code.
+            const majorVersion = `${action}/v${semver_1.default.major(newVersion)}`;
+            (0, core_1.info)(`Updating floating tag ${majorVersion} to ${context.sha}`);
+            let floatingTagExists = false;
+            try {
+                await octokit.rest.git.getRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: `tags/${majorVersion}`,
+                });
+                floatingTagExists = true;
+            }
+            catch {
+                // tag does not exist yet — will be created below
+            }
+            if (floatingTagExists) {
+                if (!dryRun) {
+                    await octokit.rest.git.updateRef({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
                         ref: `tags/${majorVersion}`,
+                        sha: context.sha,
+                        force: true,
                     });
-                    floatingTagExists = true;
-                }
-                catch {
-                    // tag does not exist yet — will be created below
-                }
-                if (floatingTagExists) {
-                    if (!dryRun) {
-                        await octokit.rest.git.updateRef({
-                            owner: context.repo.owner,
-                            repo: context.repo.repo,
-                            ref: `tags/${majorVersion}`,
-                            sha: context.sha,
-                            force: true,
-                        });
-                        (0, core_1.info)(`Updated floating tag ${majorVersion} to ${context.sha}`);
-                    }
-                    else {
-                        (0, core_1.info)(`Dry run: Skipping tag update for ${majorVersion}`);
-                    }
+                    (0, core_1.info)(`Updated floating tag ${majorVersion} to ${context.sha}`);
                 }
                 else {
-                    if (!dryRun) {
-                        await octokit.rest.git.createRef({
-                            owner: context.repo.owner,
-                            repo: context.repo.repo,
-                            ref: `refs/tags/${majorVersion}`,
-                            sha: context.sha,
-                        });
-                        (0, core_1.info)(`Created floating tag ${majorVersion} at ${context.sha}`);
-                    }
-                    else {
-                        (0, core_1.info)(`Dry run: Skipping tag creation for ${majorVersion}`);
-                    }
+                    (0, core_1.info)(`Dry run: Skipping tag update for ${majorVersion}`);
+                }
+            }
+            else {
+                if (!dryRun) {
+                    await octokit.rest.git.createRef({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        ref: `refs/tags/${majorVersion}`,
+                        sha: context.sha,
+                    });
+                    (0, core_1.info)(`Created floating tag ${majorVersion} at ${context.sha}`);
+                }
+                else {
+                    (0, core_1.info)(`Dry run: Skipping tag creation for ${majorVersion}`);
                 }
             }
             return {
@@ -33068,7 +33066,7 @@ async function run() {
                 previousVersion,
                 isMajor,
             };
-        })).filter((r) => r !== null);
+        });
         (0, core_1.setOutput)('versioned-actions', dryRun ? '[]' : JSON.stringify(versionedActions));
     }
     catch (err) {
