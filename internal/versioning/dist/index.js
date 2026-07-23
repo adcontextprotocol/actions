@@ -33028,8 +33028,11 @@ async function run() {
                 });
                 floatingTagExists = true;
             }
-            catch {
-                // tag does not exist yet — will be created below
+            catch (error) {
+                if (error.status !== 404) {
+                    throw error;
+                }
+                // 404: tag does not exist yet — will be created below
             }
             if (floatingTagExists) {
                 if (!dryRun) {
@@ -33071,6 +33074,7 @@ async function run() {
     }
     catch (err) {
         (0, core_1.error)(err);
+        (0, core_1.setOutput)('versioned-actions', '[]');
         (0, core_1.setFailed)('Failed to run versioning');
     }
 }

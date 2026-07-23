@@ -274,8 +274,11 @@ async function run() {
             ref: `tags/${majorVersion}`,
           })
           floatingTagExists = true
-        } catch {
-          // tag does not exist yet — will be created below
+        } catch (error: unknown) {
+          if ((error as { status?: number }).status !== 404) {
+            throw error
+          }
+          // 404: tag does not exist yet — will be created below
         }
 
         if (floatingTagExists) {
@@ -320,6 +323,7 @@ async function run() {
     )
   } catch (err: unknown) {
     errorMsg(err as Error)
+    setOutput('versioned-actions', '[]')
     setFailed('Failed to run versioning')
   }
 }
