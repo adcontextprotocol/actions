@@ -12,6 +12,7 @@ import {
 } from '@actions/core'
 import * as github from '@actions/github'
 import semver from 'semver'
+import { listActionTags } from './action-tags.js'
 import { listChangedFiles } from './changed-files.js'
 import { mapWithConcurrency } from './concurrency.js'
 import { computeNextVersion, readDeclaredMajorVersion } from './version-tags.js'
@@ -214,26 +215,14 @@ async function run() {
 
         const activeMajorVersion = await readDeclaredMajorVersion(action)
 
-        const { data: tags } = await octokit.rest.git.listMatchingRefs({
+        const actionTags = await listActionTags({
+          octokit,
           owner: context.repo.owner,
           repo: context.repo.repo,
-          ref: `tags/${action}/v`,
-          headers: {
-            'X-GitHub-Api-Version': '2022-11-28',
-          },
+          action,
         })
 
-        info(`Existing tags: ${tags.map((tag) => tag.ref).join(', ')}`)
-
-        const actionTags = tags
-          .filter((tag) => tag.ref.startsWith(`refs/tags/${action}/v`))
-          .map((tag) => ({
-            name: tag.ref.replace('refs/tags/', ''),
-            version: tag.ref.replace(`refs/tags/${action}/v`, ''),
-          }))
-          .filter((tag) => semver.valid(tag.version))
-
-        actionTags.sort((a, b) => semver.rcompare(a.version, b.version))
+        info(`Existing tags: ${actionTags.map((tag) => tag.name).join(', ')}`)
 
         if (actionTags.length) {
           info(`Latest Tag: ${actionTags[0].name} (${actionTags[0].version})`)

@@ -32732,6 +32732,40 @@ function wrappy (fn, cb) {
 
 /***/ }),
 
+/***/ 9843:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.listActionTags = listActionTags;
+const semver_1 = __importDefault(__nccwpck_require__(84));
+async function listActionTags(params) {
+    const { octokit, owner, repo, action } = params;
+    const prefix = `refs/tags/${action}/v`;
+    const refs = await octokit.paginate(octokit.rest.git.listMatchingRefs, {
+        owner,
+        repo,
+        ref: `tags/${action}/v`,
+        per_page: 100,
+        headers: { 'X-GitHub-Api-Version': '2022-11-28' },
+    }, (response) => response.data);
+    return refs
+        .filter((ref) => ref.ref.startsWith(prefix))
+        .map((ref) => ({
+        name: ref.ref.replace('refs/tags/', ''),
+        version: ref.ref.replace(prefix, ''),
+    }))
+        .filter((tag) => semver_1.default.valid(tag.version) !== null)
+        .sort((a, b) => semver_1.default.rcompare(a.version, b.version));
+}
+
+
+/***/ }),
+
 /***/ 3469:
 /***/ ((__unused_webpack_module, exports) => {
 
@@ -32820,6 +32854,7 @@ const node_path_1 = __importDefault(__nccwpck_require__(6760));
 const core_1 = __nccwpck_require__(7184);
 const github = __importStar(__nccwpck_require__(5683));
 const semver_1 = __importDefault(__nccwpck_require__(84));
+const action_tags_js_1 = __nccwpck_require__(9843);
 const changed_files_js_1 = __nccwpck_require__(3469);
 const concurrency_js_1 = __nccwpck_require__(5004);
 const version_tags_js_1 = __nccwpck_require__(5637);
@@ -32978,23 +33013,13 @@ async function run() {
         const versionedActions = await (0, concurrency_js_1.mapWithConcurrency)(Array.from(modifiedActions), TAG_MUTATION_CONCURRENCY, async (action) => {
             (0, core_1.info)(`Processing action: ${action}`);
             const activeMajorVersion = await (0, version_tags_js_1.readDeclaredMajorVersion)(action);
-            const { data: tags } = await octokit.rest.git.listMatchingRefs({
+            const actionTags = await (0, action_tags_js_1.listActionTags)({
+                octokit,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                ref: `tags/${action}/v`,
-                headers: {
-                    'X-GitHub-Api-Version': '2022-11-28',
-                },
+                action,
             });
-            (0, core_1.info)(`Existing tags: ${tags.map((tag) => tag.ref).join(', ')}`);
-            const actionTags = tags
-                .filter((tag) => tag.ref.startsWith(`refs/tags/${action}/v`))
-                .map((tag) => ({
-                name: tag.ref.replace('refs/tags/', ''),
-                version: tag.ref.replace(`refs/tags/${action}/v`, ''),
-            }))
-                .filter((tag) => semver_1.default.valid(tag.version));
-            actionTags.sort((a, b) => semver_1.default.rcompare(a.version, b.version));
+            (0, core_1.info)(`Existing tags: ${actionTags.map((tag) => tag.name).join(', ')}`);
             if (actionTags.length) {
                 (0, core_1.info)(`Latest Tag: ${actionTags[0].name} (${actionTags[0].version})`);
             }
