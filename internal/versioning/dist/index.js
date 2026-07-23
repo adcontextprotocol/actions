@@ -33081,7 +33081,7 @@ async function run() {
                 if (error.status !== 404) {
                     throw error;
                 }
-                // 404: tag does not exist yet — will be created below
+                // 404: tag does not exist yet, will be created below
             }
             if (floatingTagExists) {
                 if (!dryRun) {
@@ -33208,7 +33208,7 @@ async function readDeclaredMajorVersion(dir) {
         }
     }
     if (!versionPath) {
-        throw new Error(`${dir} has no version.yml — declare a major version there (e.g. "version: 1") so a tag can be cut.`);
+        throw new Error(`${dir} has no version.yml; declare a major version there (e.g. "version: 1") so a tag can be cut.`);
     }
     const raw = await (0, promises_1.readFile)(versionPath, 'utf8');
     const declared = yaml_1.default.parse(raw)?.version;

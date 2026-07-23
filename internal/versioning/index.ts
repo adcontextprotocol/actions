@@ -228,7 +228,7 @@ async function run() {
           if ((error as { status?: number }).status !== 404) {
             throw error
           }
-          // 404: tag does not exist yet — will be created below
+          // 404: tag does not exist yet, will be created below
         }
 
         if (floatingTagExists) {

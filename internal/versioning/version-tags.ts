@@ -17,7 +17,7 @@ export async function readDeclaredMajorVersion(dir: string): Promise<SemVer> {
 
   if (!versionPath) {
     throw new Error(
-      `${dir} has no version.yml — declare a major version there (e.g. "version: 1") so a tag can be cut.`,
+      `${dir} has no version.yml; declare a major version there (e.g. "version: 1") so a tag can be cut.`,
     )
   }
 
