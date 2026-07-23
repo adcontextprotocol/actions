@@ -46,6 +46,12 @@ describe('readDeclaredMajorVersion', () => {
     await writeFile(join(dir, 'version.yml'), "version: '2.9'\n")
     await expect(readDeclaredMajorVersion(dir)).rejects.toThrow(/invalid/)
   })
+
+  test('throws when the version field is a boolean', async () => {
+    const dir = await tmpActionDir()
+    await writeFile(join(dir, 'version.yml'), 'version: true\n')
+    await expect(readDeclaredMajorVersion(dir)).rejects.toThrow(/invalid/)
+  })
 })
 
 describe('computeNextVersion', () => {
@@ -93,6 +99,17 @@ describe('computeNextVersion', () => {
         declaredMajor,
       }),
     ).toEqual({ version: '1.0.6', isMajor: false })
+  })
+
+  test('refuses to cut a fresh line below an existing higher major', () => {
+    const declaredMajor = semver.parse('1.0.0')
+    if (!declaredMajor) throw new Error('bad test fixture')
+    expect(() =>
+      computeNextVersion({
+        existingVersions: ['2.0.0', '2.1.0'],
+        declaredMajor,
+      }),
+    ).toThrow(/below the highest/)
   })
 
   test('regression: declared major read from version.yml keeps the v1 line patching from 1.0.0', () => {
