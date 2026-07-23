@@ -46,24 +46,29 @@ export async function readDeclaredMajorVersion(dir: string): Promise<SemVer> {
 }
 
 export function computeNextVersion(params: {
-  currentVersion: string | null
+  existingVersions: string[]
   declaredMajor: SemVer
 }): { version: string; isMajor: boolean } {
-  const { currentVersion, declaredMajor } = params
+  const { existingVersions, declaredMajor } = params
 
-  if (currentVersion === null) {
-    return { version: `${declaredMajor.major}.0.0`, isMajor: false }
+  const onDeclaredMajor = existingVersions
+    .filter((version) => semver.major(version) === declaredMajor.major)
+    .sort(semver.rcompare)
+
+  if (onDeclaredMajor.length > 0) {
+    const version = semver.inc(onDeclaredMajor[0], 'patch')
+    if (!version) {
+      throw new Error(
+        `Failed to compute next version from ${onDeclaredMajor[0]}`,
+      )
+    }
+    return { version, isMajor: false }
   }
 
-  const isMajor = semver.compare(currentVersion, declaredMajor) < 0
-  if (isMajor) {
-    return { version: `${declaredMajor.major}.0.0`, isMajor: true }
+  // No tag exists on the declared major line yet: cut it fresh. This counts as
+  // a major bump only when the action already has tags on another major line.
+  return {
+    version: `${declaredMajor.major}.0.0`,
+    isMajor: existingVersions.length > 0,
   }
-
-  const version = semver.inc(currentVersion, 'patch')
-  if (!version) {
-    throw new Error(`Failed to compute next version from ${currentVersion}`)
-  }
-
-  return { version, isMajor: false }
 }

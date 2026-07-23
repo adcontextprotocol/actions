@@ -49,43 +49,57 @@ describe('readDeclaredMajorVersion', () => {
 })
 
 describe('computeNextVersion', () => {
-  test('first tag uses the declared major, not a hardcoded 1.0.0', () => {
+  test('first tag ever uses the declared major and is not a major bump', () => {
     const declaredMajor = semver.parse('2.0.0')
     if (!declaredMajor) throw new Error('bad test fixture')
-    expect(computeNextVersion({ currentVersion: null, declaredMajor })).toEqual(
+    expect(computeNextVersion({ existingVersions: [], declaredMajor })).toEqual(
       { version: '2.0.0', isMajor: false },
     )
   })
 
-  test('patch-bumps when the declared major matches the current tag', () => {
+  test('patch-bumps the highest tag on the declared major line', () => {
     const declaredMajor = semver.parse('1.0.0')
     if (!declaredMajor) throw new Error('bad test fixture')
     expect(
-      computeNextVersion({ currentVersion: '1.0.0', declaredMajor }),
-    ).toEqual({ version: '1.0.1', isMajor: false })
+      computeNextVersion({
+        existingVersions: ['1.0.0', '1.0.3', '1.0.1'],
+        declaredMajor,
+      }),
+    ).toEqual({ version: '1.0.4', isMajor: false })
   })
 
-  test('major-bumps when the declared major is ahead of the current tag', () => {
+  test('cutting a new higher major line is a major bump to the declared major', () => {
     const declaredMajor = semver.parse('2.0.0')
     if (!declaredMajor) throw new Error('bad test fixture')
     expect(
-      computeNextVersion({ currentVersion: '1.0.3', declaredMajor }),
+      computeNextVersion({ existingVersions: ['1.0.3'], declaredMajor }),
     ).toEqual({ version: '2.0.0', isMajor: true })
   })
 
-  test('major-bump targets the declared major, not current + 1', () => {
+  test('new major line targets the declared major exactly, not current + 1', () => {
     const declaredMajor = semver.parse('3.0.0')
     if (!declaredMajor) throw new Error('bad test fixture')
     expect(
-      computeNextVersion({ currentVersion: '1.4.2', declaredMajor }),
+      computeNextVersion({ existingVersions: ['1.4.2'], declaredMajor }),
     ).toEqual({ version: '3.0.0', isMajor: true })
   })
 
-  test('regression: a package.json-style 0.1.0->1.0.0 bump no longer forces a major (declared major is read from version.yml, not package.json)', () => {
+  test('patch-bumps the declared major line even when a higher major line exists', () => {
     const declaredMajor = semver.parse('1.0.0')
     if (!declaredMajor) throw new Error('bad test fixture')
     expect(
-      computeNextVersion({ currentVersion: '1.0.0', declaredMajor }),
+      computeNextVersion({
+        existingVersions: ['1.0.5', '2.0.0', '2.1.0'],
+        declaredMajor,
+      }),
+    ).toEqual({ version: '1.0.6', isMajor: false })
+  })
+
+  test('regression: declared major read from version.yml keeps the v1 line patching from 1.0.0', () => {
+    const declaredMajor = semver.parse('1.0.0')
+    if (!declaredMajor) throw new Error('bad test fixture')
+    expect(
+      computeNextVersion({ existingVersions: ['1.0.0'], declaredMajor }),
     ).toEqual({ version: '1.0.1', isMajor: false })
   })
 })

@@ -32998,10 +32998,10 @@ async function run() {
             if (actionTags.length) {
                 (0, core_1.info)(`Latest Tag: ${actionTags[0].name} (${actionTags[0].version})`);
             }
-            const previousVersion = actionTags.length > 0 ? actionTags[0].version : null;
+            const previousVersion = actionTags.find((tag) => semver_1.default.major(tag.version) === activeMajorVersion.major)?.version ?? null;
             (0, core_1.info)(`[${action}] Current Version ${previousVersion ?? '(none)'}`);
             const { version: newVersion, isMajor } = (0, version_tags_js_1.computeNextVersion)({
-                currentVersion: previousVersion,
+                existingVersions: actionTags.map((tag) => tag.version),
                 declaredMajor: activeMajorVersion,
             });
             const newTag = `${action}/v${newVersion}`;
@@ -33123,19 +33123,23 @@ async function readDeclaredMajorVersion(dir) {
     return parsed;
 }
 function computeNextVersion(params) {
-    const { currentVersion, declaredMajor } = params;
-    if (currentVersion === null) {
-        return { version: `${declaredMajor.major}.0.0`, isMajor: false };
+    const { existingVersions, declaredMajor } = params;
+    const onDeclaredMajor = existingVersions
+        .filter((version) => semver_1.default.major(version) === declaredMajor.major)
+        .sort(semver_1.default.rcompare);
+    if (onDeclaredMajor.length > 0) {
+        const version = semver_1.default.inc(onDeclaredMajor[0], 'patch');
+        if (!version) {
+            throw new Error(`Failed to compute next version from ${onDeclaredMajor[0]}`);
+        }
+        return { version, isMajor: false };
     }
-    const isMajor = semver_1.default.compare(currentVersion, declaredMajor) < 0;
-    if (isMajor) {
-        return { version: `${declaredMajor.major}.0.0`, isMajor: true };
-    }
-    const version = semver_1.default.inc(currentVersion, 'patch');
-    if (!version) {
-        throw new Error(`Failed to compute next version from ${currentVersion}`);
-    }
-    return { version, isMajor: false };
+    // No tag exists on the declared major line yet: cut it fresh. This counts as
+    // a major bump only when the action already has tags on another major line.
+    return {
+        version: `${declaredMajor.major}.0.0`,
+        isMajor: existingVersions.length > 0,
+    };
 }
 
 

@@ -32,6 +32,18 @@ npm run build     # ncc-bundle each node action into dist/
 - **Hooks:** Husky installs a pre-commit hook (`prepare` script) that formats
   staged files and rebuilds any changed action's `dist/`.
 
+## Versioning
+
+Actions are tagged automatically on merge to `main` (the `merge-publish`
+workflow runs `internal/versioning`). Each action declares its major version in
+its `version.yml`; every merge that touches an action cuts the next patch tag
+and repoints the floating `v<major>` tag.
+
+**Known limitation:** changed actions are detected via the GitHub compare API,
+which caps a single response at ~300 files. A merge changing more than 300 files
+(a mass reformat or lockfile churn) may not re-version every affected action.
+Recover by running the `manual-version-publish` workflow with `runForAll: true`.
+
 ## Consuming an action
 
 Reference an action from a consuming repo's workflow by path and ref, e.g.:

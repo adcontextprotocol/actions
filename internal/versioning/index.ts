@@ -240,10 +240,12 @@ async function run() {
         }
 
         const previousVersion =
-          actionTags.length > 0 ? actionTags[0].version : null
+          actionTags.find(
+            (tag) => semver.major(tag.version) === activeMajorVersion.major,
+          )?.version ?? null
         info(`[${action}] Current Version ${previousVersion ?? '(none)'}`)
         const { version: newVersion, isMajor } = computeNextVersion({
-          currentVersion: previousVersion,
+          existingVersions: actionTags.map((tag) => tag.version),
           declaredMajor: activeMajorVersion,
         })
 
