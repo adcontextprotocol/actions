@@ -33051,13 +33051,33 @@ async function run() {
             }
             else {
                 if (!dryRun) {
-                    await octokit.rest.git.createRef({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        ref: `refs/tags/${majorVersion}`,
-                        sha: context.sha,
-                    });
-                    (0, core_1.info)(`Created floating tag ${majorVersion} at ${context.sha}`);
+                    try {
+                        await octokit.rest.git.createRef({
+                            owner: context.repo.owner,
+                            repo: context.repo.repo,
+                            ref: `refs/tags/${majorVersion}`,
+                            sha: context.sha,
+                        });
+                        (0, core_1.info)(`Created floating tag ${majorVersion} at ${context.sha}`);
+                    }
+                    catch (error) {
+                        // A concurrent or retried run may have created the tag between
+                        // the existence check and here; fall back to moving it.
+                        if (error instanceof Error &&
+                            error.message.includes('Reference already exists')) {
+                            await octokit.rest.git.updateRef({
+                                owner: context.repo.owner,
+                                repo: context.repo.repo,
+                                ref: `tags/${majorVersion}`,
+                                sha: context.sha,
+                                force: true,
+                            });
+                            (0, core_1.info)(`Updated floating tag ${majorVersion} to ${context.sha}`);
+                        }
+                        else {
+                            throw error;
+                        }
+                    }
                 }
                 else {
                     (0, core_1.info)(`Dry run: Skipping tag creation for ${majorVersion}`);
