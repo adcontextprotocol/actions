@@ -4,8 +4,8 @@ Reusable GitHub Actions for the Ad Context Protocol, consumed across AdCP repos.
 
 ## Actions
 
-| Path     | What it is                                                                                     |
-| -------- | ---------------------------------------------------------------------------------------------- |
+| Path     | What it is                                                                                                 |
+| -------- | ---------------------------------------------------------------------------------------------------------- |
 | `ladon/` | The AdCP PR reviewer: `setup` -> `reviewer` -> `arbiter`, orchestrated by `review`. See `ladon/README.md`. |
 
 ## Repository layout
@@ -52,4 +52,6 @@ Reference an action from a consuming repo's workflow by path and ref, e.g.:
 - uses: adcontextprotocol/actions/ladon/review@<ref>
 ```
 
-See `ladon/AUTHORING.md` for how to configure Ladon per repo via `LADON.md`.
+See `ladon/INSTALL.md` for the full install guide (prerequisites, the workflow
+template, and the security posture), and `ladon/AUTHORING.md` for how to
+configure Ladon per repo via `LADON.md`.

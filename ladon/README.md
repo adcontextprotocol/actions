@@ -7,12 +7,12 @@ findings; the arbiter decides an outcome (`approve` / `request-changes` /
 
 ## Actions
 
-| Action     | Role                                                                                                      |
-| ---------- | --------------------------------------------------------------------------------------------------------- |
+| Action     | Role                                                                                                                                                      |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `setup`    | Parses `LADON.md`, computes the diff/delta and changed files (via the GitHub API), evaluates short-circuit skip conditions, and resolves per-repo config. |
-| `reviewer` | Runs the review against the bundled rules (`reviewer/rules/*.md`) plus the repo's `LADON.md` context and emits schema-validated findings. |
-| `arbiter`  | Turns findings into a single decision (`approve` / `request-changes` / `comment` / `escalate`) and posts the review. |
-| `review`   | Composite orchestrator that runs `setup` -> `reviewer` -> `arbiter`.                                      |
+| `reviewer` | Runs the review against the bundled rules (`reviewer/rules/*.md`) plus the repo's `LADON.md` context and emits schema-validated findings.                 |
+| `arbiter`  | Turns findings into a single decision (`approve` / `request-changes` / `comment` / `escalate`) and posts the review.                                      |
+| `review`   | Composite orchestrator that runs `setup` -> `reviewer` -> `arbiter`.                                                                                      |
 
 ## Identity
 
@@ -32,6 +32,8 @@ replace them. See `AUTHORING.md` for the full format.
 ## Layout
 
 The action tree lives under `ladon/`. Consuming repos invoke the orchestrator
-and supply the App credentials and Anthropic key as inputs; see the repo root
-`.github/workflows/ai-review.yml` for a worked example of the
-`pull_request_target` security posture.
+and supply the App credentials and Anthropic key as inputs. See
+[`INSTALL.md`](./INSTALL.md) for the consumer install guide (prerequisites, a
+copy-paste workflow, and the `pull_request_target` security posture); the repo
+root `.github/workflows/ai-review.yml` is the self-review variant that uses the
+local `./ladon/review` path.
