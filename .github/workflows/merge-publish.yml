@@ -2,8 +2,8 @@ name: Publish Updated Actions
 
 # On merge to main, create/advance the per-action version tags
 # (e.g. ladon/setup/v1, ladon/review/v1) for any action whose files changed.
-# TypeScript actions take their major version from package.json; composite
-# actions from version.yml. See internal/versioning.
+# Each action declares its major version in its version.yml. See
+# internal/versioning.
 
 on:
   push:

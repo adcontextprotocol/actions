@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
 import path from 'node:path'
 import {
   debug,
@@ -11,64 +11,19 @@ import {
   warning,
 } from '@actions/core'
 import * as github from '@actions/github'
-import type { SemVer } from 'semver'
 import semver from 'semver'
-import yaml from 'yaml'
+import { listActionTags } from './action-tags.js'
+import { listChangedFiles } from './changed-files.js'
+import { mapWithConcurrency } from './concurrency.js'
+import { createOrBumpTag } from './create-tag.js'
+import { isIgnoredDir, isVersionRelevantFile } from './paths.js'
+import { computeNextVersion, readDeclaredMajorVersion } from './version-tags.js'
 
 interface VersionedAction {
   name: string
   version: string
   previousVersion: string | null
   isMajor: boolean
-}
-
-const createOrBumpRef = async (params: {
-  octokit: ReturnType<typeof github.getOctokit>
-  repo: string
-  owner: string
-  action: string
-  version: string
-  sha: string
-}) => {
-  const { repo, owner, action, version, sha, octokit } = params
-  try {
-    const tag = `${action}/v${version}`
-    info(`Creating new tag: ${tag} for ${action}`)
-    await octokit.rest.git.createRef({
-      owner,
-      repo,
-      ref: `refs/tags/${tag}`,
-      sha,
-      force: true,
-    })
-    info(`Created tag for ${tag}`)
-  } catch (error: unknown) {
-    if (
-      error instanceof Error &&
-      error.message.includes('Reference already exists')
-    ) {
-      const bumpedVersion = semver.inc(version, 'patch')
-      if (!bumpedVersion) {
-        errorMsg(`Failed to bump version ${version}`)
-      } else {
-        return await createOrBumpRef({
-          octokit,
-          repo,
-          owner,
-          action,
-          version: bumpedVersion,
-          sha,
-        })
-      }
-    } else {
-      errorMsg(
-        error instanceof Error
-          ? error.message
-          : 'Error occurred while creating tag',
-      )
-      throw error
-    }
-  }
 }
 
 async function hasActionFile(dir: string): Promise<boolean> {
@@ -121,123 +76,18 @@ async function isActionDirectory(
   }
 }
 
-const IGNORED_DIRS = /\.git|\.github|node_modules|dist|__mocks__|internal/
-const IGNORED_EXTENSIONS = /\.(md|jsonc|sh|gitignore|nvmrc)$/
+// GitHub can trip secondary rate limits on rapid ref mutations, so cap how
+// many actions we tag concurrently.
+const TAG_MUTATION_CONCURRENCY = 4
 async function getAllFiles(dir: string = process.cwd()) {
   return (await readdir(dir, { withFileTypes: true, recursive: true }))
     .filter(
       (entry) =>
         entry.isFile() &&
-        !IGNORED_DIRS.test(entry.parentPath) &&
-        !IGNORED_EXTENSIONS.test(entry.name),
+        !isIgnoredDir(path.relative(dir, entry.parentPath)) &&
+        isVersionRelevantFile(entry.name),
     )
     .map((entry) => path.relative(dir, path.join(entry.parentPath, entry.name)))
-}
-
-async function getActionType(
-  dir: string,
-): Promise<{ type: 'composite' | 'typescript'; majorVersion: SemVer } | null> {
-  try {
-    debug(`[${dir}] [getActionType] reading files`)
-    const files = await readdir(dir)
-
-    const actionFile = files.find((file) =>
-      ['action.yml', 'action.yaml'].includes(file),
-    )
-
-    // we want to ignore the internal actions, like this one
-    if (!actionFile || actionFile.startsWith('internal/')) {
-      errorMsg(`Could not find action file in ${dir}`)
-      return null
-    }
-
-    const actionContent = await readFile(path.join(dir, actionFile), 'utf8')
-    const actionConfig = yaml.parse(actionContent)
-    debug(`[${dir}] [getActionType] ${actionConfig}`)
-    const type =
-      actionConfig.runs?.using === 'composite' ? 'composite' : 'typescript'
-    debug(`[${dir}] ${type}`)
-
-    // **
-    // * We use `version.yml` for composite actions, and the version entry in the "package.json" file for TypeScript actions.
-    // * This is to notate MAJOR versions, minor or patch versions are not notated.
-    // * For breaking changes, we should bump this version to the next MAJOR version to publish the major patch.
-    // **
-    if (type === 'typescript' && existsSync(path.join(dir, 'package.json'))) {
-      const packageJson = JSON.parse(
-        await readFile(path.join(dir, 'package.json'), 'utf8'),
-      )
-      const majorVersion = packageJson.version
-
-      info(`TypeScript action found at ${dir}, major version: ${majorVersion}`)
-
-      const parsedVersion = semver.parse(String(majorVersion), {
-        loose: true,
-      }) as SemVer
-
-      if (!parsedVersion) {
-        errorMsg(`[${dir}] Invalid Semver Version: ${majorVersion}`)
-        throw new Error(
-          `[${dir}] Invalid version format in package.json: ${packageJson.version}`,
-        )
-      }
-
-      return {
-        type,
-        majorVersion: parsedVersion,
-      }
-    }
-
-    let versionPath: null | string = null
-    for (const file of ['version.yml', 'version.yaml']) {
-      const filePath = path.join(dir, file)
-      if (existsSync(filePath)) {
-        versionPath = filePath
-        break
-      }
-    }
-
-    if (!versionPath) {
-      warning(`Version file not found for ${dir}`)
-      return null
-    }
-
-    if (type === 'composite' && versionPath) {
-      const versionFile = await readFile(versionPath, 'utf8')
-      debug(versionFile.toString())
-      const version = yaml.parse(versionFile.toString()).version
-      info(`[${dir}] ${version}`)
-      if (version) {
-        const majorVersion =
-          typeof version === 'number' ? version : Number.parseInt(version)
-
-        if (Number.isNaN(majorVersion)) {
-          errorMsg(`[${dir}] Invalid version: ${majorVersion}`)
-          throw new Error(`Invalid version: ${majorVersion}`)
-        }
-
-        const parsedVersion = semver.parse(`${majorVersion}.0.0`, {
-          loose: true,
-        }) as SemVer
-
-        if (!parsedVersion) {
-          warning(`[${dir}] Invalid Semver Version: ${majorVersion}`)
-          return null
-        }
-
-        return {
-          type,
-          majorVersion: parsedVersion,
-        }
-      }
-      warning(`Version file found, but version attribute is missing for ${dir}`)
-    }
-
-    return null
-  } catch (error: unknown) {
-    warning(`Failed to determine action type: ${(error as Error).message}`)
-    return null
-  }
 }
 
 async function run() {
@@ -283,13 +133,18 @@ async function run() {
       info('Run for all enabled, getting all action files')
       files = await getAllFiles()
     } else {
-      const response = await octokit.rest.repos.compareCommits({
+      const changed = await listChangedFiles({
+        octokit,
         owner: context.repo.owner,
         repo: context.repo.repo,
         base: context.payload.before,
         head: context.payload.after,
       })
-      files = (response.data.files || []).map((file) => file.filename)
+      files = changed.filter(
+        (file) =>
+          isVersionRelevantFile(path.basename(file)) &&
+          !isIgnoredDir(path.dirname(file)),
+      )
     }
 
     info(`Changed Files: ${files.join(', ')}`)
@@ -310,149 +165,127 @@ async function run() {
     }
     info(`Modified Actions: ${Array.from(modifiedActions).join(', ')}`)
 
-    const versionedActions: VersionedAction[] = (
-      await Promise.all(
-        Array.from(modifiedActions).map(
-          async (action): Promise<VersionedAction | null> => {
-            info(`Processing action: ${action}`)
+    const versionedActions: VersionedAction[] = await mapWithConcurrency(
+      Array.from(modifiedActions),
+      TAG_MUTATION_CONCURRENCY,
+      async (action): Promise<VersionedAction> => {
+        info(`Processing action: ${action}`)
 
-            const actionInfo = await getActionType(action)
-            if (!actionInfo) {
-              warning(
-                `Could not determine action type for ${action}, skipping...`,
-              )
-              return null
-            }
-            const { type: actionType, majorVersion: activeMajorVersion } =
-              actionInfo
+        const activeMajorVersion = await readDeclaredMajorVersion(action)
 
-            if (!actionType) {
-              warning(
-                `Could not determine action type for ${action}, skipping...`,
-              )
-              return null
-            }
+        const actionTags = await listActionTags({
+          octokit,
+          owner: context.repo.owner,
+          repo: context.repo.repo,
+          action,
+        })
 
-            if (!activeMajorVersion) {
-              warning(
-                `Could not determine major version for ${action}, skipping...`,
-              )
-              return null
-            }
+        info(`Existing tags: ${actionTags.map((tag) => tag.name).join(', ')}`)
 
-            const { data: tags } = await octokit.rest.git.listMatchingRefs({
+        if (actionTags.length) {
+          info(`Latest Tag: ${actionTags[0].name} (${actionTags[0].version})`)
+        }
+
+        const previousVersion =
+          actionTags.find(
+            (tag) => semver.major(tag.version) === activeMajorVersion.major,
+          )?.version ?? null
+        info(`[${action}] Current Version ${previousVersion ?? '(none)'}`)
+        const { version: newVersion, isMajor } = computeNextVersion({
+          existingVersions: actionTags.map((tag) => tag.version),
+          declaredMajor: activeMajorVersion,
+        })
+
+        const newTag = `${action}/v${newVersion}`
+        let createdVersion = newVersion
+        if (!dryRun) {
+          createdVersion = await createOrBumpTag({
+            octokit,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            action,
+            version: newVersion,
+            sha: context.sha,
+          })
+        } else {
+          info(`Dry run: Skipping tag creation for ${newTag}`)
+        }
+
+        // Keep the floating major-version tag (e.g. v2) pointing at the
+        // latest patch so callers pinned to @v2 always get current code.
+        const majorVersion = `${action}/v${semver.major(createdVersion)}`
+        info(`Updating floating tag ${majorVersion} to ${context.sha}`)
+
+        let floatingTagExists = false
+        try {
+          await octokit.rest.git.getRef({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            ref: `tags/${majorVersion}`,
+          })
+          floatingTagExists = true
+        } catch (error: unknown) {
+          if ((error as { status?: number }).status !== 404) {
+            throw error
+          }
+          // 404: tag does not exist yet, will be created below
+        }
+
+        if (floatingTagExists) {
+          if (!dryRun) {
+            await octokit.rest.git.updateRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              ref: `tags/${action}/v`,
-              headers: {
-                'X-GitHub-Api-Version': '2022-11-28',
-              },
+              ref: `tags/${majorVersion}`,
+              sha: context.sha,
+              force: true,
             })
-
-            info(`Existing tags: ${tags.map((tag) => tag.ref).join(', ')}`)
-
-            const actionTags = tags
-              .filter((tag) => tag.ref.startsWith(`refs/tags/${action}/v`))
-              .map((tag) => ({
-                name: tag.ref.replace('refs/tags/', ''),
-                version: tag.ref.replace(`refs/tags/${action}/v`, ''),
-              }))
-              .filter((tag) => semver.valid(tag.version))
-
-            actionTags.sort((a, b) => semver.rcompare(a.version, b.version))
-
-            if (actionTags.length) {
-              info(
-                `Latest Tag: ${actionTags[0].name} (${actionTags[0].version})`,
-              )
-            }
-
-            let newVersion: null | string = null
-            if (actionTags.length === 0) {
-              newVersion = '1.0.0'
-            } else {
-              const currentVersion = actionTags[0].version
-              info(`[${action}] Current Version ${currentVersion}`)
-              if (semver.compare(currentVersion, activeMajorVersion) < 0) {
-                newVersion = semver.inc(currentVersion, 'major')
-              } else {
-                newVersion = semver.inc(currentVersion, 'patch')
-              }
-            }
-
-            if (!newVersion) {
-              throw new Error('Failed to determine new version')
-            }
-
-            const previousVersion =
-              actionTags.length > 0 ? actionTags[0].version : null
-            const isMajor =
-              previousVersion !== null &&
-              semver.compare(previousVersion, activeMajorVersion) < 0
-
-            const newTag = `${action}/v${newVersion}`
-            !dryRun
-              ? await createOrBumpRef({
-                  octokit,
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  action,
-                  version: newVersion,
-                  sha: context.sha,
-                })
-              : info(`Dry run: Skipping tag creation for ${newTag}`)
-
-            if (newVersion) {
-              // Keep the floating major-version tag (e.g. v2) pointing at the
-              // latest patch so callers pinned to @v2 always get current code.
-              const majorVersion = `${action}/v${semver.major(newVersion)}`
-              info(`Updating floating tag ${majorVersion} to ${context.sha}`)
-
-              let floatingTagExists = false
-              try {
-                await octokit.rest.git.getRef({
+            info(`Updated floating tag ${majorVersion} to ${context.sha}`)
+          } else {
+            info(`Dry run: Skipping tag update for ${majorVersion}`)
+          }
+        } else {
+          if (!dryRun) {
+            try {
+              await octokit.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/tags/${majorVersion}`,
+                sha: context.sha,
+              })
+              info(`Created floating tag ${majorVersion} at ${context.sha}`)
+            } catch (error: unknown) {
+              // A concurrent or retried run may have created the tag between
+              // the existence check and here; fall back to moving it.
+              if (
+                error instanceof Error &&
+                error.message.includes('Reference already exists')
+              ) {
+                await octokit.rest.git.updateRef({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   ref: `tags/${majorVersion}`,
+                  sha: context.sha,
+                  force: true,
                 })
-                floatingTagExists = true
-              } catch {
-                // tag does not exist yet — will be created below
-              }
-
-              if (floatingTagExists) {
-                if (!dryRun) {
-                  await octokit.rest.git.updateRef({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    ref: `tags/${majorVersion}`,
-                    sha: context.sha,
-                    force: true,
-                  })
-                  info(`Updated floating tag ${majorVersion} to ${context.sha}`)
-                } else {
-                  info(`Dry run: Skipping tag update for ${majorVersion}`)
-                }
+                info(`Updated floating tag ${majorVersion} to ${context.sha}`)
               } else {
-                if (!dryRun) {
-                  await octokit.rest.git.createRef({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    ref: `refs/tags/${majorVersion}`,
-                    sha: context.sha,
-                  })
-                  info(`Created floating tag ${majorVersion} at ${context.sha}`)
-                } else {
-                  info(`Dry run: Skipping tag creation for ${majorVersion}`)
-                }
+                throw error
               }
             }
+          } else {
+            info(`Dry run: Skipping tag creation for ${majorVersion}`)
+          }
+        }
 
-            return { name: action, version: newVersion, previousVersion, isMajor }
-          },
-        ),
-      )
-    ).filter((r): r is VersionedAction => r !== null)
+        return {
+          name: action,
+          version: createdVersion,
+          previousVersion,
+          isMajor,
+        }
+      },
+    )
 
     setOutput(
       'versioned-actions',
@@ -460,6 +293,7 @@ async function run() {
     )
   } catch (err: unknown) {
     errorMsg(err as Error)
+    setOutput('versioned-actions', '[]')
     setFailed('Failed to run versioning')
   }
 }

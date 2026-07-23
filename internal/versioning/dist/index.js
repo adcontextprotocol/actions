@@ -32732,6 +32732,136 @@ function wrappy (fn, cb) {
 
 /***/ }),
 
+/***/ 9843:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.listActionTags = listActionTags;
+const semver_1 = __importDefault(__nccwpck_require__(84));
+async function listActionTags(params) {
+    const { octokit, owner, repo, action } = params;
+    const prefix = `refs/tags/${action}/v`;
+    const refs = await octokit.paginate(octokit.rest.git.listMatchingRefs, {
+        owner,
+        repo,
+        ref: `tags/${action}/v`,
+        per_page: 100,
+        headers: { 'X-GitHub-Api-Version': '2022-11-28' },
+    }, (response) => response.data);
+    return refs
+        .filter((ref) => ref.ref.startsWith(prefix))
+        .map((ref) => ({
+        name: ref.ref.replace('refs/tags/', ''),
+        version: ref.ref.replace(prefix, ''),
+    }))
+        .filter((tag) => semver_1.default.valid(tag.version) !== null)
+        .sort((a, b) => semver_1.default.rcompare(a.version, b.version));
+}
+
+
+/***/ }),
+
+/***/ 3469:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.listChangedFiles = listChangedFiles;
+async function listChangedFiles(params) {
+    const { octokit, owner, repo, base, head } = params;
+    const files = await octokit.paginate(octokit.rest.repos.compareCommits, { owner, repo, base, head, per_page: 100 }, (response) => response.data.files ?? []);
+    return files.map((file) => file.filename);
+}
+
+
+/***/ }),
+
+/***/ 5004:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.mapWithConcurrency = mapWithConcurrency;
+async function mapWithConcurrency(items, limit, fn) {
+    const results = new Array(items.length);
+    let cursor = 0;
+    async function worker() {
+        while (cursor < items.length) {
+            const index = cursor++;
+            results[index] = await fn(items[index], index);
+        }
+    }
+    const workerCount = Math.min(limit, items.length);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    return results;
+}
+
+
+/***/ }),
+
+/***/ 4622:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.createOrBumpTag = createOrBumpTag;
+const core_1 = __nccwpck_require__(7184);
+const semver_1 = __importDefault(__nccwpck_require__(84));
+// Creates the exact tag; if it already exists, patch-bumps until a free
+// version is found. Returns the version actually created so callers report the
+// real tag, not the originally-computed one.
+async function createOrBumpTag(params) {
+    const { repo, owner, action, version, sha, octokit } = params;
+    const tag = `${action}/v${version}`;
+    try {
+        (0, core_1.info)(`Creating new tag: ${tag} for ${action}`);
+        await octokit.rest.git.createRef({
+            owner,
+            repo,
+            ref: `refs/tags/${tag}`,
+            sha,
+            force: true,
+        });
+        (0, core_1.info)(`Created tag for ${tag}`);
+        return version;
+    }
+    catch (error) {
+        if (error instanceof Error &&
+            error.message.includes('Reference already exists')) {
+            const bumpedVersion = semver_1.default.inc(version, 'patch');
+            if (!bumpedVersion) {
+                throw new Error(`Failed to bump version ${version}`);
+            }
+            return await createOrBumpTag({
+                octokit,
+                repo,
+                owner,
+                action,
+                version: bumpedVersion,
+                sha,
+            });
+        }
+        (0, core_1.error)(error instanceof Error
+            ? error.message
+            : 'Error occurred while creating tag');
+        throw error;
+    }
+}
+
+
+/***/ }),
+
 /***/ 5183:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -32780,47 +32910,12 @@ const node_path_1 = __importDefault(__nccwpck_require__(6760));
 const core_1 = __nccwpck_require__(7184);
 const github = __importStar(__nccwpck_require__(5683));
 const semver_1 = __importDefault(__nccwpck_require__(84));
-const yaml_1 = __importDefault(__nccwpck_require__(3483));
-const createOrBumpRef = async (params) => {
-    const { repo, owner, action, version, sha, octokit } = params;
-    try {
-        const tag = `${action}/v${version}`;
-        (0, core_1.info)(`Creating new tag: ${tag} for ${action}`);
-        await octokit.rest.git.createRef({
-            owner,
-            repo,
-            ref: `refs/tags/${tag}`,
-            sha,
-            force: true,
-        });
-        (0, core_1.info)(`Created tag for ${tag}`);
-    }
-    catch (error) {
-        if (error instanceof Error &&
-            error.message.includes('Reference already exists')) {
-            const bumpedVersion = semver_1.default.inc(version, 'patch');
-            if (!bumpedVersion) {
-                (0, core_1.error)(`Failed to bump version ${version}`);
-            }
-            else {
-                return await createOrBumpRef({
-                    octokit,
-                    repo,
-                    owner,
-                    action,
-                    version: bumpedVersion,
-                    sha,
-                });
-            }
-        }
-        else {
-            (0, core_1.error)(error instanceof Error
-                ? error.message
-                : 'Error occurred while creating tag');
-            throw error;
-        }
-    }
-};
+const action_tags_js_1 = __nccwpck_require__(9843);
+const changed_files_js_1 = __nccwpck_require__(3469);
+const concurrency_js_1 = __nccwpck_require__(5004);
+const create_tag_js_1 = __nccwpck_require__(4622);
+const paths_js_1 = __nccwpck_require__(3999);
+const version_tags_js_1 = __nccwpck_require__(5637);
 async function hasActionFile(dir) {
     try {
         const contents = await (0, promises_1.readdir)(dir);
@@ -32862,94 +32957,15 @@ async function isActionDirectory(filePath, retries = 0) {
         return null;
     }
 }
-const IGNORED_DIRS = /\.git|\.github|node_modules|dist|__mocks__|internal/;
-const IGNORED_EXTENSIONS = /\.(md|jsonc|sh|gitignore|nvmrc)$/;
+// GitHub can trip secondary rate limits on rapid ref mutations, so cap how
+// many actions we tag concurrently.
+const TAG_MUTATION_CONCURRENCY = 4;
 async function getAllFiles(dir = process.cwd()) {
     return (await (0, promises_1.readdir)(dir, { withFileTypes: true, recursive: true }))
         .filter((entry) => entry.isFile() &&
-        !IGNORED_DIRS.test(entry.parentPath) &&
-        !IGNORED_EXTENSIONS.test(entry.name))
+        !(0, paths_js_1.isIgnoredDir)(node_path_1.default.relative(dir, entry.parentPath)) &&
+        (0, paths_js_1.isVersionRelevantFile)(entry.name))
         .map((entry) => node_path_1.default.relative(dir, node_path_1.default.join(entry.parentPath, entry.name)));
-}
-async function getActionType(dir) {
-    try {
-        (0, core_1.debug)(`[${dir}] [getActionType] reading files`);
-        const files = await (0, promises_1.readdir)(dir);
-        const actionFile = files.find((file) => ['action.yml', 'action.yaml'].includes(file));
-        // we want to ignore the internal actions, like this one
-        if (!actionFile || actionFile.startsWith('internal/')) {
-            (0, core_1.error)(`Could not find action file in ${dir}`);
-            return null;
-        }
-        const actionContent = await (0, promises_1.readFile)(node_path_1.default.join(dir, actionFile), 'utf8');
-        const actionConfig = yaml_1.default.parse(actionContent);
-        (0, core_1.debug)(`[${dir}] [getActionType] ${actionConfig}`);
-        const type = actionConfig.runs?.using === 'composite' ? 'composite' : 'typescript';
-        (0, core_1.debug)(`[${dir}] ${type}`);
-        // **
-        // * We use `version.yml` for composite actions, and the version entry in the "package.json" file for TypeScript actions.
-        // * This is to notate MAJOR versions, minor or patch versions are not notated.
-        // * For breaking changes, we should bump this version to the next MAJOR version to publish the major patch.
-        // **
-        if (type === 'typescript' && (0, node_fs_1.existsSync)(node_path_1.default.join(dir, 'package.json'))) {
-            const packageJson = JSON.parse(await (0, promises_1.readFile)(node_path_1.default.join(dir, 'package.json'), 'utf8'));
-            const majorVersion = packageJson.version;
-            (0, core_1.info)(`TypeScript action found at ${dir}, major version: ${majorVersion}`);
-            const parsedVersion = semver_1.default.parse(String(majorVersion), {
-                loose: true,
-            });
-            if (!parsedVersion) {
-                (0, core_1.error)(`[${dir}] Invalid Semver Version: ${majorVersion}`);
-                throw new Error(`[${dir}] Invalid version format in package.json: ${packageJson.version}`);
-            }
-            return {
-                type,
-                majorVersion: parsedVersion,
-            };
-        }
-        let versionPath = null;
-        for (const file of ['version.yml', 'version.yaml']) {
-            const filePath = node_path_1.default.join(dir, file);
-            if ((0, node_fs_1.existsSync)(filePath)) {
-                versionPath = filePath;
-                break;
-            }
-        }
-        if (!versionPath) {
-            (0, core_1.warning)(`Version file not found for ${dir}`);
-            return null;
-        }
-        if (type === 'composite' && versionPath) {
-            const versionFile = await (0, promises_1.readFile)(versionPath, 'utf8');
-            (0, core_1.debug)(versionFile.toString());
-            const version = yaml_1.default.parse(versionFile.toString()).version;
-            (0, core_1.info)(`[${dir}] ${version}`);
-            if (version) {
-                const majorVersion = typeof version === 'number' ? version : Number.parseInt(version);
-                if (Number.isNaN(majorVersion)) {
-                    (0, core_1.error)(`[${dir}] Invalid version: ${majorVersion}`);
-                    throw new Error(`Invalid version: ${majorVersion}`);
-                }
-                const parsedVersion = semver_1.default.parse(`${majorVersion}.0.0`, {
-                    loose: true,
-                });
-                if (!parsedVersion) {
-                    (0, core_1.warning)(`[${dir}] Invalid Semver Version: ${majorVersion}`);
-                    return null;
-                }
-                return {
-                    type,
-                    majorVersion: parsedVersion,
-                };
-            }
-            (0, core_1.warning)(`Version file found, but version attribute is missing for ${dir}`);
-        }
-        return null;
-    }
-    catch (error) {
-        (0, core_1.warning)(`Failed to determine action type: ${error.message}`);
-        return null;
-    }
 }
 async function run() {
     try {
@@ -32989,13 +33005,15 @@ async function run() {
             files = await getAllFiles();
         }
         else {
-            const response = await octokit.rest.repos.compareCommits({
+            const changed = await (0, changed_files_js_1.listChangedFiles)({
+                octokit,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 base: context.payload.before,
                 head: context.payload.after,
             });
-            files = (response.data.files || []).map((file) => file.filename);
+            files = changed.filter((file) => (0, paths_js_1.isVersionRelevantFile)(node_path_1.default.basename(file)) &&
+                !(0, paths_js_1.isIgnoredDir)(node_path_1.default.dirname(file)));
         }
         (0, core_1.info)(`Changed Files: ${files.join(', ')}`);
         const modifiedActions = new Set();
@@ -33012,107 +33030,77 @@ async function run() {
             return;
         }
         (0, core_1.info)(`Modified Actions: ${Array.from(modifiedActions).join(', ')}`);
-        const versionedActions = (await Promise.all(Array.from(modifiedActions).map(async (action) => {
+        const versionedActions = await (0, concurrency_js_1.mapWithConcurrency)(Array.from(modifiedActions), TAG_MUTATION_CONCURRENCY, async (action) => {
             (0, core_1.info)(`Processing action: ${action}`);
-            const actionInfo = await getActionType(action);
-            if (!actionInfo) {
-                (0, core_1.warning)(`Could not determine action type for ${action}, skipping...`);
-                return null;
-            }
-            const { type: actionType, majorVersion: activeMajorVersion } = actionInfo;
-            if (!actionType) {
-                (0, core_1.warning)(`Could not determine action type for ${action}, skipping...`);
-                return null;
-            }
-            if (!activeMajorVersion) {
-                (0, core_1.warning)(`Could not determine major version for ${action}, skipping...`);
-                return null;
-            }
-            const { data: tags } = await octokit.rest.git.listMatchingRefs({
+            const activeMajorVersion = await (0, version_tags_js_1.readDeclaredMajorVersion)(action);
+            const actionTags = await (0, action_tags_js_1.listActionTags)({
+                octokit,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                ref: `tags/${action}/v`,
-                headers: {
-                    'X-GitHub-Api-Version': '2022-11-28',
-                },
+                action,
             });
-            (0, core_1.info)(`Existing tags: ${tags.map((tag) => tag.ref).join(', ')}`);
-            const actionTags = tags
-                .filter((tag) => tag.ref.startsWith(`refs/tags/${action}/v`))
-                .map((tag) => ({
-                name: tag.ref.replace('refs/tags/', ''),
-                version: tag.ref.replace(`refs/tags/${action}/v`, ''),
-            }))
-                .filter((tag) => semver_1.default.valid(tag.version));
-            actionTags.sort((a, b) => semver_1.default.rcompare(a.version, b.version));
+            (0, core_1.info)(`Existing tags: ${actionTags.map((tag) => tag.name).join(', ')}`);
             if (actionTags.length) {
                 (0, core_1.info)(`Latest Tag: ${actionTags[0].name} (${actionTags[0].version})`);
             }
-            let newVersion = null;
-            if (actionTags.length === 0) {
-                newVersion = '1.0.0';
-            }
-            else {
-                const currentVersion = actionTags[0].version;
-                (0, core_1.info)(`[${action}] Current Version ${currentVersion}`);
-                if (semver_1.default.compare(currentVersion, activeMajorVersion) < 0) {
-                    newVersion = semver_1.default.inc(currentVersion, 'major');
-                }
-                else {
-                    newVersion = semver_1.default.inc(currentVersion, 'patch');
-                }
-            }
-            if (!newVersion) {
-                throw new Error('Failed to determine new version');
-            }
-            const previousVersion = actionTags.length > 0 ? actionTags[0].version : null;
-            const isMajor = previousVersion !== null &&
-                semver_1.default.compare(previousVersion, activeMajorVersion) < 0;
+            const previousVersion = actionTags.find((tag) => semver_1.default.major(tag.version) === activeMajorVersion.major)?.version ?? null;
+            (0, core_1.info)(`[${action}] Current Version ${previousVersion ?? '(none)'}`);
+            const { version: newVersion, isMajor } = (0, version_tags_js_1.computeNextVersion)({
+                existingVersions: actionTags.map((tag) => tag.version),
+                declaredMajor: activeMajorVersion,
+            });
             const newTag = `${action}/v${newVersion}`;
-            !dryRun
-                ? await createOrBumpRef({
+            let createdVersion = newVersion;
+            if (!dryRun) {
+                createdVersion = await (0, create_tag_js_1.createOrBumpTag)({
                     octokit,
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     action,
                     version: newVersion,
                     sha: context.sha,
-                })
-                : (0, core_1.info)(`Dry run: Skipping tag creation for ${newTag}`);
-            if (newVersion) {
-                // Keep the floating major-version tag (e.g. v2) pointing at the
-                // latest patch so callers pinned to @v2 always get current code.
-                const majorVersion = `${action}/v${semver_1.default.major(newVersion)}`;
-                (0, core_1.info)(`Updating floating tag ${majorVersion} to ${context.sha}`);
-                let floatingTagExists = false;
-                try {
-                    await octokit.rest.git.getRef({
+                });
+            }
+            else {
+                (0, core_1.info)(`Dry run: Skipping tag creation for ${newTag}`);
+            }
+            // Keep the floating major-version tag (e.g. v2) pointing at the
+            // latest patch so callers pinned to @v2 always get current code.
+            const majorVersion = `${action}/v${semver_1.default.major(createdVersion)}`;
+            (0, core_1.info)(`Updating floating tag ${majorVersion} to ${context.sha}`);
+            let floatingTagExists = false;
+            try {
+                await octokit.rest.git.getRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: `tags/${majorVersion}`,
+                });
+                floatingTagExists = true;
+            }
+            catch (error) {
+                if (error.status !== 404) {
+                    throw error;
+                }
+                // 404: tag does not exist yet, will be created below
+            }
+            if (floatingTagExists) {
+                if (!dryRun) {
+                    await octokit.rest.git.updateRef({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
                         ref: `tags/${majorVersion}`,
+                        sha: context.sha,
+                        force: true,
                     });
-                    floatingTagExists = true;
-                }
-                catch {
-                    // tag does not exist yet — will be created below
-                }
-                if (floatingTagExists) {
-                    if (!dryRun) {
-                        await octokit.rest.git.updateRef({
-                            owner: context.repo.owner,
-                            repo: context.repo.repo,
-                            ref: `tags/${majorVersion}`,
-                            sha: context.sha,
-                            force: true,
-                        });
-                        (0, core_1.info)(`Updated floating tag ${majorVersion} to ${context.sha}`);
-                    }
-                    else {
-                        (0, core_1.info)(`Dry run: Skipping tag update for ${majorVersion}`);
-                    }
+                    (0, core_1.info)(`Updated floating tag ${majorVersion} to ${context.sha}`);
                 }
                 else {
-                    if (!dryRun) {
+                    (0, core_1.info)(`Dry run: Skipping tag update for ${majorVersion}`);
+                }
+            }
+            else {
+                if (!dryRun) {
+                    try {
                         await octokit.rest.git.createRef({
                             owner: context.repo.owner,
                             repo: context.repo.repo,
@@ -33121,21 +33109,151 @@ async function run() {
                         });
                         (0, core_1.info)(`Created floating tag ${majorVersion} at ${context.sha}`);
                     }
-                    else {
-                        (0, core_1.info)(`Dry run: Skipping tag creation for ${majorVersion}`);
+                    catch (error) {
+                        // A concurrent or retried run may have created the tag between
+                        // the existence check and here; fall back to moving it.
+                        if (error instanceof Error &&
+                            error.message.includes('Reference already exists')) {
+                            await octokit.rest.git.updateRef({
+                                owner: context.repo.owner,
+                                repo: context.repo.repo,
+                                ref: `tags/${majorVersion}`,
+                                sha: context.sha,
+                                force: true,
+                            });
+                            (0, core_1.info)(`Updated floating tag ${majorVersion} to ${context.sha}`);
+                        }
+                        else {
+                            throw error;
+                        }
                     }
                 }
+                else {
+                    (0, core_1.info)(`Dry run: Skipping tag creation for ${majorVersion}`);
+                }
             }
-            return { name: action, version: newVersion, previousVersion, isMajor };
-        }))).filter((r) => r !== null);
+            return {
+                name: action,
+                version: createdVersion,
+                previousVersion,
+                isMajor,
+            };
+        });
         (0, core_1.setOutput)('versioned-actions', dryRun ? '[]' : JSON.stringify(versionedActions));
     }
     catch (err) {
         (0, core_1.error)(err);
+        (0, core_1.setOutput)('versioned-actions', '[]');
         (0, core_1.setFailed)('Failed to run versioning');
     }
 }
 run();
+
+
+/***/ }),
+
+/***/ 3999:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.isIgnoredDir = isIgnoredDir;
+exports.isVersionRelevantFile = isVersionRelevantFile;
+// Directory segments the versioner never treats as (or descends into for)
+// actions. Matched per path segment, not as substrings.
+const IGNORED_DIR_SEGMENTS = new Set([
+    '.git',
+    '.github',
+    'node_modules',
+    'dist',
+    '__mocks__',
+    'internal',
+]);
+// Files whose changes never warrant a new action version (docs, config).
+const IGNORED_EXTENSIONS = /\.(md|jsonc|sh|gitignore|nvmrc)$/;
+function isIgnoredDir(dir) {
+    return dir.split('/').some((segment) => IGNORED_DIR_SEGMENTS.has(segment));
+}
+function isVersionRelevantFile(fileName) {
+    return !IGNORED_EXTENSIONS.test(fileName);
+}
+
+
+/***/ }),
+
+/***/ 5637:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.readDeclaredMajorVersion = readDeclaredMajorVersion;
+exports.computeNextVersion = computeNextVersion;
+const node_fs_1 = __nccwpck_require__(3024);
+const promises_1 = __nccwpck_require__(1455);
+const node_path_1 = __importDefault(__nccwpck_require__(6760));
+const semver_1 = __importDefault(__nccwpck_require__(84));
+const yaml_1 = __importDefault(__nccwpck_require__(3483));
+async function readDeclaredMajorVersion(dir) {
+    let versionPath = null;
+    for (const file of ['version.yml', 'version.yaml']) {
+        const candidate = node_path_1.default.join(dir, file);
+        if ((0, node_fs_1.existsSync)(candidate)) {
+            versionPath = candidate;
+            break;
+        }
+    }
+    if (!versionPath) {
+        throw new Error(`${dir} has no version.yml; declare a major version there (e.g. "version: 1") so a tag can be cut.`);
+    }
+    const raw = await (0, promises_1.readFile)(versionPath, 'utf8');
+    const declared = yaml_1.default.parse(raw)?.version;
+    if (declared === undefined || declared === null) {
+        throw new Error(`${versionPath} is missing the required 'version' field`);
+    }
+    if (typeof declared !== 'number' && typeof declared !== 'string') {
+        throw new Error(`${versionPath} has an invalid 'version' value: ${declared}`);
+    }
+    const major = typeof declared === 'number' ? declared : Number(declared);
+    if (!Number.isInteger(major) || major < 1) {
+        throw new Error(`${versionPath} has an invalid 'version' value: ${declared}`);
+    }
+    const parsed = semver_1.default.parse(`${major}.0.0`);
+    if (!parsed) {
+        throw new Error(`${versionPath} produced an unparseable version: ${major}.0.0`);
+    }
+    return parsed;
+}
+function computeNextVersion(params) {
+    const { existingVersions, declaredMajor } = params;
+    const onDeclaredMajor = existingVersions
+        .filter((version) => semver_1.default.major(version) === declaredMajor.major)
+        .sort(semver_1.default.rcompare);
+    if (onDeclaredMajor.length > 0) {
+        const version = semver_1.default.inc(onDeclaredMajor[0], 'patch');
+        if (!version) {
+            throw new Error(`Failed to compute next version from ${onDeclaredMajor[0]}`);
+        }
+        return { version, isMajor: false };
+    }
+    // No tag exists on the declared major line yet, so we are cutting it fresh.
+    // Refuse to open a line below an already-published higher major, which would
+    // point an older major tag at newer code.
+    const highestMajor = existingVersions.reduce((max, version) => Math.max(max, semver_1.default.major(version)), 0);
+    if (declaredMajor.major < highestMajor) {
+        throw new Error(`declared major ${declaredMajor.major} is below the highest published major ${highestMajor}; refusing to cut a backward version line`);
+    }
+    // A fresh line counts as a major bump only when the action already has tags
+    // on another major line.
+    return {
+        version: `${declaredMajor.major}.0.0`,
+        isMajor: existingVersions.length > 0,
+    };
+}
 
 
 /***/ }),
