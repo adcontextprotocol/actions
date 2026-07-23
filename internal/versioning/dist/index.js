@@ -32806,6 +32806,62 @@ async function mapWithConcurrency(items, limit, fn) {
 
 /***/ }),
 
+/***/ 4622:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.createOrBumpTag = createOrBumpTag;
+const core_1 = __nccwpck_require__(7184);
+const semver_1 = __importDefault(__nccwpck_require__(84));
+// Creates the exact tag; if it already exists, patch-bumps until a free
+// version is found. Returns the version actually created so callers report the
+// real tag, not the originally-computed one.
+async function createOrBumpTag(params) {
+    const { repo, owner, action, version, sha, octokit } = params;
+    const tag = `${action}/v${version}`;
+    try {
+        (0, core_1.info)(`Creating new tag: ${tag} for ${action}`);
+        await octokit.rest.git.createRef({
+            owner,
+            repo,
+            ref: `refs/tags/${tag}`,
+            sha,
+            force: true,
+        });
+        (0, core_1.info)(`Created tag for ${tag}`);
+        return version;
+    }
+    catch (error) {
+        if (error instanceof Error &&
+            error.message.includes('Reference already exists')) {
+            const bumpedVersion = semver_1.default.inc(version, 'patch');
+            if (!bumpedVersion) {
+                throw new Error(`Failed to bump version ${version}`);
+            }
+            return await createOrBumpTag({
+                octokit,
+                repo,
+                owner,
+                action,
+                version: bumpedVersion,
+                sha,
+            });
+        }
+        (0, core_1.error)(error instanceof Error
+            ? error.message
+            : 'Error occurred while creating tag');
+        throw error;
+    }
+}
+
+
+/***/ }),
+
 /***/ 5183:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -32857,48 +32913,9 @@ const semver_1 = __importDefault(__nccwpck_require__(84));
 const action_tags_js_1 = __nccwpck_require__(9843);
 const changed_files_js_1 = __nccwpck_require__(3469);
 const concurrency_js_1 = __nccwpck_require__(5004);
+const create_tag_js_1 = __nccwpck_require__(4622);
 const paths_js_1 = __nccwpck_require__(3999);
 const version_tags_js_1 = __nccwpck_require__(5637);
-const createOrBumpRef = async (params) => {
-    const { repo, owner, action, version, sha, octokit } = params;
-    try {
-        const tag = `${action}/v${version}`;
-        (0, core_1.info)(`Creating new tag: ${tag} for ${action}`);
-        await octokit.rest.git.createRef({
-            owner,
-            repo,
-            ref: `refs/tags/${tag}`,
-            sha,
-            force: true,
-        });
-        (0, core_1.info)(`Created tag for ${tag}`);
-    }
-    catch (error) {
-        if (error instanceof Error &&
-            error.message.includes('Reference already exists')) {
-            const bumpedVersion = semver_1.default.inc(version, 'patch');
-            if (!bumpedVersion) {
-                (0, core_1.error)(`Failed to bump version ${version}`);
-            }
-            else {
-                return await createOrBumpRef({
-                    octokit,
-                    repo,
-                    owner,
-                    action,
-                    version: bumpedVersion,
-                    sha,
-                });
-            }
-        }
-        else {
-            (0, core_1.error)(error instanceof Error
-                ? error.message
-                : 'Error occurred while creating tag');
-            throw error;
-        }
-    }
-};
 async function hasActionFile(dir) {
     try {
         const contents = await (0, promises_1.readdir)(dir);
@@ -33033,19 +33050,23 @@ async function run() {
                 declaredMajor: activeMajorVersion,
             });
             const newTag = `${action}/v${newVersion}`;
-            !dryRun
-                ? await createOrBumpRef({
+            let createdVersion = newVersion;
+            if (!dryRun) {
+                createdVersion = await (0, create_tag_js_1.createOrBumpTag)({
                     octokit,
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     action,
                     version: newVersion,
                     sha: context.sha,
-                })
-                : (0, core_1.info)(`Dry run: Skipping tag creation for ${newTag}`);
+                });
+            }
+            else {
+                (0, core_1.info)(`Dry run: Skipping tag creation for ${newTag}`);
+            }
             // Keep the floating major-version tag (e.g. v2) pointing at the
             // latest patch so callers pinned to @v2 always get current code.
-            const majorVersion = `${action}/v${semver_1.default.major(newVersion)}`;
+            const majorVersion = `${action}/v${semver_1.default.major(createdVersion)}`;
             (0, core_1.info)(`Updating floating tag ${majorVersion} to ${context.sha}`);
             let floatingTagExists = false;
             try {
@@ -33113,7 +33134,7 @@ async function run() {
             }
             return {
                 name: action,
-                version: newVersion,
+                version: createdVersion,
                 previousVersion,
                 isMajor,
             };

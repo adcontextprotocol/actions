@@ -15,6 +15,7 @@ import semver from 'semver'
 import { listActionTags } from './action-tags.js'
 import { listChangedFiles } from './changed-files.js'
 import { mapWithConcurrency } from './concurrency.js'
+import { createOrBumpTag } from './create-tag.js'
 import { isIgnoredDir, isVersionRelevantFile } from './paths.js'
 import { computeNextVersion, readDeclaredMajorVersion } from './version-tags.js'
 
@@ -23,55 +24,6 @@ interface VersionedAction {
   version: string
   previousVersion: string | null
   isMajor: boolean
-}
-
-const createOrBumpRef = async (params: {
-  octokit: ReturnType<typeof github.getOctokit>
-  repo: string
-  owner: string
-  action: string
-  version: string
-  sha: string
-}) => {
-  const { repo, owner, action, version, sha, octokit } = params
-  try {
-    const tag = `${action}/v${version}`
-    info(`Creating new tag: ${tag} for ${action}`)
-    await octokit.rest.git.createRef({
-      owner,
-      repo,
-      ref: `refs/tags/${tag}`,
-      sha,
-      force: true,
-    })
-    info(`Created tag for ${tag}`)
-  } catch (error: unknown) {
-    if (
-      error instanceof Error &&
-      error.message.includes('Reference already exists')
-    ) {
-      const bumpedVersion = semver.inc(version, 'patch')
-      if (!bumpedVersion) {
-        errorMsg(`Failed to bump version ${version}`)
-      } else {
-        return await createOrBumpRef({
-          octokit,
-          repo,
-          owner,
-          action,
-          version: bumpedVersion,
-          sha,
-        })
-      }
-    } else {
-      errorMsg(
-        error instanceof Error
-          ? error.message
-          : 'Error occurred while creating tag',
-      )
-      throw error
-    }
-  }
 }
 
 async function hasActionFile(dir: string): Promise<boolean> {
@@ -245,20 +197,23 @@ async function run() {
         })
 
         const newTag = `${action}/v${newVersion}`
-        !dryRun
-          ? await createOrBumpRef({
-              octokit,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              action,
-              version: newVersion,
-              sha: context.sha,
-            })
-          : info(`Dry run: Skipping tag creation for ${newTag}`)
+        let createdVersion = newVersion
+        if (!dryRun) {
+          createdVersion = await createOrBumpTag({
+            octokit,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            action,
+            version: newVersion,
+            sha: context.sha,
+          })
+        } else {
+          info(`Dry run: Skipping tag creation for ${newTag}`)
+        }
 
         // Keep the floating major-version tag (e.g. v2) pointing at the
         // latest patch so callers pinned to @v2 always get current code.
-        const majorVersion = `${action}/v${semver.major(newVersion)}`
+        const majorVersion = `${action}/v${semver.major(createdVersion)}`
         info(`Updating floating tag ${majorVersion} to ${context.sha}`)
 
         let floatingTagExists = false
@@ -325,7 +280,7 @@ async function run() {
 
         return {
           name: action,
-          version: newVersion,
+          version: createdVersion,
           previousVersion,
           isMajor,
         }
