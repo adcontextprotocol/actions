@@ -13,7 +13,20 @@ monorepo. Each action is a workspace under a top-level directory (currently
 - **Build/test/type-check run through Turborepo** (`npm run build|test|type-check`).
 - **Lint/format via Biome** (single quotes, no semicolons, 2-space, 80 cols).
   YAML and Markdown are formatted with Prettier.
-- **Tests are Vitest** (`*.test.ts` next to source).
+
+## Testing
+
+- **Tests are Vitest** (`*.test.ts` next to source), run through Turborepo
+  (`npm run test`).
+- **Fixing a bug starts with a failing test.** Reproduce the bug in a
+  `*.test.ts` first, watch it fail, then make it pass, and land the test in the
+  same change as the fix so the regression cannot silently return.
+- **Unit-test pure logic, not the Actions runtime.** Keep each action's
+  `index.ts` a thin `@actions/core` entrypoint (read inputs, call GitHub, write
+  outputs) and push real logic into sibling modules that take plain arguments,
+  so it can be tested without mocking the whole GitHub Actions environment.
+  `internal/versioning/{version-tags,changed-files,concurrency}.ts` are the
+  pattern.
 
 ## Ladon
 
