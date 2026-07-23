@@ -32857,6 +32857,7 @@ const semver_1 = __importDefault(__nccwpck_require__(84));
 const action_tags_js_1 = __nccwpck_require__(9843);
 const changed_files_js_1 = __nccwpck_require__(3469);
 const concurrency_js_1 = __nccwpck_require__(5004);
+const paths_js_1 = __nccwpck_require__(3999);
 const version_tags_js_1 = __nccwpck_require__(5637);
 const createOrBumpRef = async (params) => {
     const { repo, owner, action, version, sha, octokit } = params;
@@ -32939,14 +32940,14 @@ async function isActionDirectory(filePath, retries = 0) {
         return null;
     }
 }
-const IGNORED_DIRS = /\.git|\.github|node_modules|dist|__mocks__|internal/;
-const IGNORED_EXTENSIONS = /\.(md|jsonc|sh|gitignore|nvmrc)$/;
+// GitHub can trip secondary rate limits on rapid ref mutations, so cap how
+// many actions we tag concurrently.
 const TAG_MUTATION_CONCURRENCY = 4;
 async function getAllFiles(dir = process.cwd()) {
     return (await (0, promises_1.readdir)(dir, { withFileTypes: true, recursive: true }))
         .filter((entry) => entry.isFile() &&
-        !IGNORED_DIRS.test(entry.parentPath) &&
-        !IGNORED_EXTENSIONS.test(entry.name))
+        !(0, paths_js_1.isIgnoredDir)(node_path_1.default.relative(dir, entry.parentPath)) &&
+        (0, paths_js_1.isVersionRelevantFile)(entry.name))
         .map((entry) => node_path_1.default.relative(dir, node_path_1.default.join(entry.parentPath, entry.name)));
 }
 async function run() {
@@ -32987,13 +32988,15 @@ async function run() {
             files = await getAllFiles();
         }
         else {
-            files = await (0, changed_files_js_1.listChangedFiles)({
+            const changed = await (0, changed_files_js_1.listChangedFiles)({
                 octokit,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 base: context.payload.before,
                 head: context.payload.after,
             });
+            files = changed.filter((file) => (0, paths_js_1.isVersionRelevantFile)(node_path_1.default.basename(file)) &&
+                !(0, paths_js_1.isIgnoredDir)(node_path_1.default.dirname(file)));
         }
         (0, core_1.info)(`Changed Files: ${files.join(', ')}`);
         const modifiedActions = new Set();
@@ -33124,6 +33127,36 @@ async function run() {
     }
 }
 run();
+
+
+/***/ }),
+
+/***/ 3999:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.isIgnoredDir = isIgnoredDir;
+exports.isVersionRelevantFile = isVersionRelevantFile;
+// Directory segments the versioner never treats as (or descends into for)
+// actions. Matched per path segment, not as substrings.
+const IGNORED_DIR_SEGMENTS = new Set([
+    '.git',
+    '.github',
+    'node_modules',
+    'dist',
+    '__mocks__',
+    'internal',
+]);
+// Files whose changes never warrant a new action version (docs, config).
+const IGNORED_EXTENSIONS = /\.(md|jsonc|sh|gitignore|nvmrc)$/;
+function isIgnoredDir(dir) {
+    return dir.split('/').some((segment) => IGNORED_DIR_SEGMENTS.has(segment));
+}
+function isVersionRelevantFile(fileName) {
+    return !IGNORED_EXTENSIONS.test(fileName);
+}
 
 
 /***/ }),

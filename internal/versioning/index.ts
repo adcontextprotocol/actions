@@ -15,6 +15,7 @@ import semver from 'semver'
 import { listActionTags } from './action-tags.js'
 import { listChangedFiles } from './changed-files.js'
 import { mapWithConcurrency } from './concurrency.js'
+import { isIgnoredDir, isVersionRelevantFile } from './paths.js'
 import { computeNextVersion, readDeclaredMajorVersion } from './version-tags.js'
 
 interface VersionedAction {
@@ -123,16 +124,16 @@ async function isActionDirectory(
   }
 }
 
-const IGNORED_DIRS = /\.git|\.github|node_modules|dist|__mocks__|internal/
-const IGNORED_EXTENSIONS = /\.(md|jsonc|sh|gitignore|nvmrc)$/
+// GitHub can trip secondary rate limits on rapid ref mutations, so cap how
+// many actions we tag concurrently.
 const TAG_MUTATION_CONCURRENCY = 4
 async function getAllFiles(dir: string = process.cwd()) {
   return (await readdir(dir, { withFileTypes: true, recursive: true }))
     .filter(
       (entry) =>
         entry.isFile() &&
-        !IGNORED_DIRS.test(entry.parentPath) &&
-        !IGNORED_EXTENSIONS.test(entry.name),
+        !isIgnoredDir(path.relative(dir, entry.parentPath)) &&
+        isVersionRelevantFile(entry.name),
     )
     .map((entry) => path.relative(dir, path.join(entry.parentPath, entry.name)))
 }
@@ -180,13 +181,18 @@ async function run() {
       info('Run for all enabled, getting all action files')
       files = await getAllFiles()
     } else {
-      files = await listChangedFiles({
+      const changed = await listChangedFiles({
         octokit,
         owner: context.repo.owner,
         repo: context.repo.repo,
         base: context.payload.before,
         head: context.payload.after,
       })
+      files = changed.filter(
+        (file) =>
+          isVersionRelevantFile(path.basename(file)) &&
+          !isIgnoredDir(path.dirname(file)),
+      )
     }
 
     info(`Changed Files: ${files.join(', ')}`)
