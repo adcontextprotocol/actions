@@ -190,3 +190,20 @@ vulnerability. When in doubt, copy the template unchanged.
 - **Versioning.** `@ladon/review/v1` is a floating major tag; you automatically
   pick up the latest `v1.x.x` on each run (no pin bumps). Only a major bump
   (`v1` → `v2`) is a deliberate opt-in change to this line.
+
+## Upgrading notes
+
+Replacing an existing reviewer? Worked examples:
+[adcp-go #422](https://github.com/adcontextprotocol/adcp-go/pull/422),
+[adcp-client #2384](https://github.com/adcontextprotocol/adcp-client/pull/2384).
+
+- **Remove the old reviewer in the same PR.** Delete its workflow, prompt, and
+  any drift/fork-tracking files; nothing to sync once Ladon is consumed remotely.
+- **Preserve the status-check context.** The job is named `code_review`, which is
+  the required-check name. Keep it, or update branch protection, or the old
+  required check goes stale and blocks merges.
+- **Secrets existing ≠ App installed.** If the token-mint step fails without a
+  secret-not-found error, the App isn't installed on the repo. Secrets are often
+  org-scoped, so check the org tab before adding repo-level copies.
+- **First review lands after merge.** The install PR modifies the review system,
+  so it won't self-review and needs a human approver; Ladon starts on your next PR.
