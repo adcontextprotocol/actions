@@ -336,6 +336,41 @@ async function main(): Promise<void> {
         prNumber,
         marker: 'ladon/merge-conflict-noted',
       })
+    } else if (
+      decision.skipReason === 'empty-delta' ||
+      decision.skipReason === 'pure-rebase'
+    ) {
+      // When a no-delta push dismisses a prior approval via GitHub's stale-review
+      // policy, the PR stays blocked forever: nothing new to review, but the
+      // approval is gone. Detect this and signal the orchestrator to re-submit it.
+      try {
+        const [priorDecisionStr, reviewDecision] = await Promise.all([
+          fetchPriorDecision({
+            octokit,
+            owner,
+            repo,
+            prNumber,
+            ladonBotLogin,
+          }),
+          fetchReviewDecision({ octokit, owner, repo, prNumber }),
+        ])
+        let priorOutcome: string | undefined
+        try {
+          priorOutcome = (JSON.parse(priorDecisionStr) as { outcome?: string })
+            .outcome
+        } catch {
+          // malformed marker — skip re-approval
+        }
+        if (priorOutcome === 'approve' && reviewDecision === 'REVIEW_REQUIRED') {
+          core.setOutput('reapprove', 'true')
+          core.setOutput('pr-number', String(prNumber))
+          core.setOutput('head-sha', headSha)
+        }
+      } catch (err) {
+        core.warning(
+          `Could not check prior approval state for re-approval: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
     }
     core.setOutput('should-run', 'false')
     core.setOutput('skip-reason', decision.skipReason ?? '')
