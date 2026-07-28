@@ -7,7 +7,7 @@ workflow.
 
 Ladon runs as a GitHub Action; the consuming repo supplies the credentials and a
 thin workflow that carries the security posture. Copy the workflow below, set the
-prerequisites, add a `LADON.md`, and you're done.
+prerequisites, add a `LADON.md`, and confirm the workflow registered.
 
 ## Prerequisites
 
@@ -161,6 +161,20 @@ extends them, it never replaces them. Minimum viable:
 ```
 
 See [`AUTHORING.md`](./AUTHORING.md) for the full section reference and format rules.
+
+## Step 3: confirm the workflow registered
+
+Once the install PR lands, check that GitHub actually picked the workflow up:
+
+```bash
+gh api "repos/<owner>/<repo>/actions/workflows" --jq '.workflows[] | "\(.path) \(.state)"'
+```
+
+`.github/workflows/ai-review.yml` must be listed and `active`. If it is missing,
+the workflow is not on the repo's **default** branch: GitHub registers
+`pull_request_target` workflows from the default branch only, so anywhere else
+the file sits inert and Ladon silently never runs. Check the default branch with
+`gh repo view --json defaultBranchRef`.
 
 ## Security posture
 
