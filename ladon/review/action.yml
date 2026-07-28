@@ -102,6 +102,18 @@ runs:
         echo "Ladon skipped: ${{ steps.setup.outputs.skip-reason }}"
         echo "should-run=false skip-reason=${{ steps.setup.outputs.skip-reason }}" >> "$GITHUB_STEP_SUMMARY"
 
+    - name: Re-approve dismissed stale approval
+      if: steps.setup.outputs.reapprove == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+      run: |
+        gh api repos/${{ github.repository }}/pulls/${{ steps.setup.outputs.pr-number }}/reviews \
+          --method POST \
+          -f body='Re-approval: no reviewable delta since the prior approval; re-submitting after stale-review dismissal.' \
+          -f event='APPROVE' \
+          -f commit_id='${{ steps.setup.outputs.head-sha }}'
+
     - name: Reviewer
       if: steps.setup.outputs.should-run == 'true'
       id: reviewer
