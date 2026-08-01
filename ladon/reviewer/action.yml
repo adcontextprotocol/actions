@@ -182,6 +182,7 @@ runs:
         claude_args: |
           --model ${{ inputs.model }}
           --max-turns ${{ inputs.max-turns }}
+          --add-dir ${{ runner.temp }}
           --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Read,Write,Glob,Grep"
 
     - name: Read findings JSON
@@ -193,6 +194,16 @@ runs:
 
         if [[ ! -f "${FINDINGS_PATH}" ]]; then
           echo "::error::Reviewer did not write a findings file at ${FINDINGS_PATH}. The arbiter cannot run without structured findings. Failing the job so a human investigates rather than auto-approving on empty input."
+          # Surface the most common cause: the Write was permission-denied
+          # (e.g. the findings path fell outside Claude Code's permitted
+          # directories after a claude-code-action behavior change).
+          EXEC_LOG="${RUNNER_TEMP}/claude-execution-output.json"
+          if [[ -f "${EXEC_LOG}" ]]; then
+            DENIALS=$(jq -r '[.. | objects | select(has("permission_denials_count")) | .permission_denials_count] | max // empty' "${EXEC_LOG}" 2>/dev/null || true)
+            if [[ -n "${DENIALS}" && "${DENIALS}" != "0" ]]; then
+              echo "::error::The run recorded ${DENIALS} permission denial(s) — the reviewer likely attempted the findings Write and was blocked. Check that claude_args grants the findings directory (--add-dir) and that allowedTools includes Write."
+            fi
+          fi
           exit 1
         fi
 
