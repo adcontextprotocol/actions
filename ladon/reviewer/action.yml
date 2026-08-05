@@ -82,8 +82,13 @@ runs:
       run: |
         set -euo pipefail
         RULES="${{ github.action_path }}/rules"
-        FINDINGS_PATH="${RUNNER_TEMP}/ladon-findings.json"
+        # Claude Code's additional-directory permission is not sufficient for
+        # unattended Write calls in every CLI release. Keep the structured
+        # output in the base-only checkout, which is the action's native
+        # writable root, and remove any stale file before the review starts.
+        FINDINGS_PATH="${GITHUB_WORKSPACE}/.ladon-findings-$(openssl rand -hex 16).json"
         PROMPT_PATH="${RUNNER_TEMP}/ladon-prompt.md"
+        rm -f -- "${FINDINGS_PATH}"
 
         # The WG constitution lives in the spec repo, not here. Fetch it from
         # adcp@main at review time — the PR under review cannot mutate the rules
@@ -187,21 +192,21 @@ runs:
 
     - name: Read findings JSON
       id: findings
+      if: ${{ always() && steps.prompt.outputs.findings-path != '' }}
       shell: bash
       run: |
         set -euo pipefail
         FINDINGS_PATH="${{ steps.prompt.outputs.findings-path }}"
+        trap 'rm -f -- "${FINDINGS_PATH}"' EXIT
 
         if [[ ! -f "${FINDINGS_PATH}" ]]; then
           echo "::error::Reviewer did not write a findings file at ${FINDINGS_PATH}. The arbiter cannot run without structured findings. Failing the job so a human investigates rather than auto-approving on empty input."
-          # Surface the most common cause: the Write was permission-denied
-          # (e.g. the findings path fell outside Claude Code's permitted
-          # directories after a claude-code-action behavior change).
+          # Surface tool denials so a future permission regression is visible.
           EXEC_LOG="${RUNNER_TEMP}/claude-execution-output.json"
           if [[ -f "${EXEC_LOG}" ]]; then
             DENIALS=$(jq -r '[.. | objects | select(has("permission_denials_count")) | .permission_denials_count] | max // empty' "${EXEC_LOG}" 2>/dev/null || true)
             if [[ -n "${DENIALS}" && "${DENIALS}" != "0" ]]; then
-              echo "::error::The run recorded ${DENIALS} permission denial(s) — the reviewer likely attempted the findings Write and was blocked. Check that claude_args grants the findings directory (--add-dir) and that allowedTools includes Write."
+              echo "::error::The run recorded ${DENIALS} permission denial(s) — the reviewer may have attempted the findings Write and been blocked. Check that allowedTools includes Write and that the findings path remains inside GITHUB_WORKSPACE."
             fi
           fi
           exit 1
