@@ -82,13 +82,8 @@ runs:
       run: |
         set -euo pipefail
         RULES="${{ github.action_path }}/rules"
-        # Claude Code's additional-directory permission is not sufficient for
-        # unattended Write calls in every CLI release. Keep the structured
-        # output in the base-only checkout, which is the action's native
-        # writable root, and remove any stale file before the review starts.
-        FINDINGS_PATH="${GITHUB_WORKSPACE}/.ladon-findings-$(openssl rand -hex 16).json"
+        JSON_SCHEMA="$(jq -c . "${{ github.action_path }}/findings-schema.json")"
         PROMPT_PATH="${RUNNER_TEMP}/ladon-prompt.md"
-        rm -f -- "${FINDINGS_PATH}"
 
         # The WG constitution lives in the spec repo, not here. Fetch it from
         # adcp@main at review time — the PR under review cannot mutate the rules
@@ -149,10 +144,7 @@ runs:
           printf '2. Pull the full diff only when delta context is insufficient.\n'
           printf '3. Use `gh pr view` and `gh pr diff` as needed. The checked-out workspace is pinned to the BASE SHA (%s): `Read`/`Glob`/`Grep` there show the OLD version of changed files, so treat them as base-only context. The delta and full diff files (paths above) carry the actual changes since base — rely on them to see what changed, and pair them with the base-version `Read` for surrounding context.\n' "${BASE_SHA}"
           printf '4. Post one inline comment per finding via `mcp__github_inline_comment__create_inline_comment` (with `confirmed: true`) following the inline-comment rules above.\n'
-          printf '5. **At end-of-run, write the findings JSON to `%s` using the `Write` tool.** The JSON MUST conform to this schema:\n\n' "${FINDINGS_PATH}"
-          printf '```json\n'
-          cat "${{ github.action_path }}/findings-schema.json"
-          printf '\n```\n\n'
+          printf '5. **Return your review through the schema-validated structured output.** Always include both `summary` and `findings`; use an empty `findings` array for a clean review. Do not omit the structured output.\n\n'
           printf 'Do NOT post a top-level PR review. Do NOT call `gh pr review`. The arbiter step handles the overall verdict.\n'
         } > "${PROMPT_PATH}"
 
@@ -164,7 +156,7 @@ runs:
           echo "prompt<<${PROMPT_EOF}"
           cat "${PROMPT_PATH}"
           echo "${PROMPT_EOF}"
-          echo "findings-path=${FINDINGS_PATH}"
+          echo "json-schema=${JSON_SCHEMA}"
         } >> "${GITHUB_OUTPUT}"
 
     - name: Claude Code review
@@ -188,41 +180,42 @@ runs:
           --model ${{ inputs.model }}
           --max-turns ${{ inputs.max-turns }}
           --add-dir ${{ runner.temp }}
-          --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Read,Write,Glob,Grep"
+          --json-schema '${{ steps.prompt.outputs.json-schema }}'
+          --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Read,Glob,Grep"
 
     - name: Read findings JSON
       id: findings
-      if: ${{ always() && steps.prompt.outputs.findings-path != '' }}
+      if: ${{ always() }}
       shell: bash
+      env:
+        FINDINGS_JSON: ${{ steps.claude.outputs.structured_output }}
       run: |
         set -euo pipefail
-        FINDINGS_PATH="${{ steps.prompt.outputs.findings-path }}"
-        trap 'rm -f -- "${FINDINGS_PATH}"' EXIT
 
-        if [[ ! -f "${FINDINGS_PATH}" ]]; then
-          echo "::error::Reviewer did not write a findings file at ${FINDINGS_PATH}. The arbiter cannot run without structured findings. Failing the job so a human investigates rather than auto-approving on empty input."
+        if [[ -z "${FINDINGS_JSON}" ]]; then
+          echo "::error::Claude Code did not return structured findings. The arbiter cannot run without schema-validated findings. Failing the job so a human investigates rather than auto-approving on empty input."
           # Surface tool denials so a future permission regression is visible.
           EXEC_LOG="${RUNNER_TEMP}/claude-execution-output.json"
           if [[ -f "${EXEC_LOG}" ]]; then
             DENIALS=$(jq -r '[.. | objects | select(has("permission_denials_count")) | .permission_denials_count] | max // empty' "${EXEC_LOG}" 2>/dev/null || true)
             if [[ -n "${DENIALS}" && "${DENIALS}" != "0" ]]; then
-              echo "::error::The run recorded ${DENIALS} permission denial(s) — the reviewer may have attempted the findings Write and been blocked. Check that allowedTools includes Write and that the findings path remains inside GITHUB_WORKSPACE."
+              echo "::error::The run recorded ${DENIALS} permission denial(s). Inspect the execution log for a reviewer tool-permission regression."
             fi
           fi
           exit 1
         fi
 
-        if ! jq empty "${FINDINGS_PATH}" >/dev/null 2>&1; then
-          echo "::error::Findings file at ${FINDINGS_PATH} is not valid JSON."
+        if ! jq empty <<< "${FINDINGS_JSON}" >/dev/null 2>&1; then
+          echo "::error::Claude Code structured findings are not valid JSON."
           echo "First 500 bytes:"
-          head -c 500 "${FINDINGS_PATH}" || true
+          head -c 500 <<< "${FINDINGS_JSON}" || true
           exit 1
         fi
 
         FINDINGS_EOF="AAO_SECRETARIAT_FINDINGS_EOF_$(openssl rand -hex 8)"
         {
           echo "findings-json<<${FINDINGS_EOF}"
-          cat "${FINDINGS_PATH}"
+          printf '%s\n' "${FINDINGS_JSON}"
           echo "${FINDINGS_EOF}"
         } >> "${GITHUB_OUTPUT}"
 
