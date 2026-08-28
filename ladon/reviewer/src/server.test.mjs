@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
@@ -23,8 +23,13 @@ const finding = {
 function harness() {
   const directory = mkdtempSync(join(tmpdir(), 'ladon-mcp-test-'))
   const statePath = join(directory, 'state.json')
+  const tracePath = join(directory, 'trace.jsonl')
   writeReviewState(statePath, createReviewState())
-  return { statePath, handle: createMcpHandler(statePath) }
+  return {
+    statePath,
+    tracePath,
+    handle: createMcpHandler(statePath, tracePath),
+  }
 }
 
 describe('findings MCP server', () => {
@@ -86,7 +91,7 @@ describe('findings MCP server', () => {
   })
 
   test('persists findings through a tool call', async () => {
-    const { statePath, handle } = harness()
+    const { statePath, tracePath, handle } = harness()
     const response = await handle({
       jsonrpc: '2.0',
       id: 2,
@@ -96,6 +101,10 @@ describe('findings MCP server', () => {
 
     expect(response.result.isError).toBe(false)
     expect(readReviewState(statePath).findings).toEqual([finding])
+    expect(JSON.parse(readFileSync(tracePath, 'utf8'))).toEqual({
+      name: 'record_finding',
+      arguments: finding,
+    })
   })
 
   test('returns a tool error without mutating state for invalid input', async () => {

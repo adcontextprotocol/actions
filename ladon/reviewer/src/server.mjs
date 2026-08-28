@@ -1,3 +1,4 @@
+import { appendFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import { pathToFileURL } from 'node:url'
 import {
@@ -77,7 +78,15 @@ function errorResponse(id, code, message) {
   return { jsonrpc: '2.0', id, error: { code, message } }
 }
 
-export function createMcpHandler(statePath) {
+function auditToolCall(tracePath, name, input) {
+  if (!tracePath) return
+  appendFileSync(tracePath, `${JSON.stringify({ name, arguments: input })}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  })
+}
+
+export function createMcpHandler(statePath, tracePath) {
   if (!statePath) throw new Error('a review state path is required')
 
   return async function handle(message) {
@@ -100,6 +109,7 @@ export function createMcpHandler(statePath) {
     const name = message.params?.name
     const input = message.params?.arguments ?? {}
     try {
+      auditToolCall(tracePath, name, input)
       const state = readReviewState(statePath)
       if (name === 'record_finding') {
         const next = recordFinding(state, input)
@@ -134,8 +144,9 @@ export function createMcpHandler(statePath) {
 
 export async function runServer(
   statePath = process.env.LADON_REVIEW_STATE_PATH,
+  tracePath = process.env.LADON_REVIEW_TRACE_PATH,
 ) {
-  const handle = createMcpHandler(statePath)
+  const handle = createMcpHandler(statePath, tracePath)
   const lines = createInterface({
     input: process.stdin,
     crlfDelay: Number.POSITIVE_INFINITY,

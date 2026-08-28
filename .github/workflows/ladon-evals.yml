@@ -1,0 +1,92 @@
+name: Ladon Model Evals
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "Comma-separated exact Claude model IDs"
+        required: true
+        type: string
+        default: "claude-opus-4-8"
+      repetitions:
+        description: "Trials per model"
+        required: true
+        type: number
+        default: 5
+      concurrency:
+        description: "Maximum concurrent Claude trials"
+        required: true
+        type: number
+        default: 2
+
+permissions:
+  contents: read
+
+jobs:
+  claude_contract:
+    name: Claude tool-contract baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_VERSION: "2.1.224"
+      LADON_EVAL_CLAUDE_ADAPTER_ID: "claude-cli-v1+2.1.224"
+      LADON_EVAL_CLAUDE_MAX_TURNS: "60"
+      LADON_EVAL_CLAUDE_MAX_BUDGET_USD: "2"
+      LADON_EVAL_CLAUDE_RETRY_MAX_BUDGET_USD: "0.25"
+      LADON_EVAL_CLAUDE_TIMEOUT_MS: "300000"
+      MODELS: ${{ inputs.models }}
+      REPETITIONS: ${{ inputs.repetitions }}
+      CONCURRENCY: ${{ inputs.concurrency }}
+      REPORT_PATH: ladon-eval-report.json
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install pinned Claude Code
+        run: npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+
+      - name: Run Claude contract evals
+        run: |
+          node ladon/evals/src/cli.mjs run \
+            --fixture ladon/evals/fixtures/tool-contract-unbounded-retry.json \
+            --adapter 'node ladon/evals/src/adapters/claude.mjs' \
+            --provider anthropic \
+            --models "${MODELS}" \
+            --repetitions "${REPETITIONS}" \
+            --concurrency "${CONCURRENCY}" \
+            --timeout-ms 330000 \
+            --out "${REPORT_PATH}"
+
+      - name: Render summary
+        if: always() && hashFiles(env.REPORT_PATH) != ''
+        run: |
+          {
+            echo '### Ladon Claude contract eval'
+            echo
+            echo '| Model | Trials | Pass rate | Completion | Runner errors | Mean turns | Mean cost |'
+            echo '|---|---:|---:|---:|---:|---:|---:|'
+            jq -r '.summary[] | "| \(.model) | \(.trials) | \(.pass_rate) | \(.completion_rate) | \(.runner_error_rate) | \(.mean_turns // "n/a") | \(.mean_cost_usd // "n/a") |"' "${REPORT_PATH}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload eval report
+        if: always() && hashFiles(env.REPORT_PATH) != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ladon-claude-contract-${{ github.run_id }}
+          path: ${{ env.REPORT_PATH }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce contract gate
+        if: always()
+        run: |
+          test -f "${REPORT_PATH}"
+          jq -e '.status == "complete" and (.reports | length > 0) and (.reports | all(.passed == true and .metrics.false_approvals == 0))' "${REPORT_PATH}"

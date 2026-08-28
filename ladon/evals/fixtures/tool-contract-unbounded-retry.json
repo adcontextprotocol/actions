@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "id": "tool-contract-unbounded-retry",
+  "description": "A live-model contract case that requires deterministic finding persistence and explicit finalization.",
+  "source": {
+    "kind": "synthetic",
+    "base_sha": "fixture-v1-base",
+    "head_sha": "fixture-v1-head"
+  },
+  "input": {
+    "prompt_template": "You are running an isolated Ladon reviewer contract test. Read the diff at {{file:inputs/review.diff}}. The unbounded retry is a confirmed medium-severity operability finding in src/retry.ts. Call mcp__ladon_findings__record_finding exactly once for that finding with posted_inline false. Then call mcp__ladon_findings__finalize_review exactly once with analysis_complete true and a concise summary. The MCP state, not your final text, is the result. Do not run commands, edit files, or use any other tools.",
+    "files": [
+      {
+        "path": "inputs/review.diff",
+        "sha256": "d5ace87f4059e0434373e1609d333cdca35c0d8d01ff7b60f4c2f1504f4e7c04",
+        "content": "diff --git a/src/retry.ts b/src/retry.ts\n--- a/src/retry.ts\n+++ b/src/retry.ts\n@@ -1,3 +1,7 @@\n export async function retry(request) {\n-  return send(request)\n+  while (true) {\n+    await send(request)\n+  }\n }\n"
+      }
+    ],
+    "outcome": "comment"
+  },
+  "expected": {
+    "required_findings": [
+      {
+        "file": "src/retry.ts",
+        "severity": "medium",
+        "title_includes": null
+      }
+    ],
+    "forbidden_outcomes": ["approve"],
+    "allow_additional_findings": false,
+    "require_completion": true,
+    "max_tool_errors": 0
+  }
+}
