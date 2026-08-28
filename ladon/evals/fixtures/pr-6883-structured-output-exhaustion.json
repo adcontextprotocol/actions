@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "adcp-pr-6883-structured-output-exhaustion",
+  "description": "Historical Ladon regression in which review finalization exhausted without a usable structured result.",
+  "source": {
+    "repository": "adcontextprotocol/adcp",
+    "pr_number": 6883,
+    "base_sha": "56ca7d0b9562b19e8ca8679753163e8e5771058f",
+    "head_sha": "fd80c1feb799f4843d0596e64ca0e4e0f80f1a17",
+    "run_urls": [
+      "https://github.com/adcontextprotocol/adcp/actions/runs/33108187113",
+      "https://github.com/adcontextprotocol/adcp/actions/runs/33108551829"
+    ]
+  },
+  "expected": {
+    "required_findings": [],
+    "forbidden_outcomes": ["approve"],
+    "allow_additional_findings": true
+  }
+}

@@ -4,6 +4,9 @@ AdCP's PR reviewer, as a set of GitHub Actions: `setup` -> `reviewer` ->
 `arbiter`, orchestrated by `review`. The reviewer emits schema-validated
 findings; the arbiter decides an outcome (`approve` / `request-changes` /
 `comment` / `escalate`) via a constrained tool call and posts a single review.
+Reviewer findings are persisted as they are discovered rather than recovered
+from final model text. The [`evals`](./evals/README.md) package replays those
+tool calls and provides a provider-neutral cross-model comparison harness.
 
 ## Actions
 

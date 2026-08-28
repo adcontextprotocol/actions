@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "fixture_id": "adcp-pr-6883-structured-output-exhaustion",
+  "provider": "anthropic",
+  "model": "historical-production-model",
+  "attempts": [
+    {
+      "kind": "review",
+      "result": {
+        "subtype": "error_max_turns"
+      },
+      "tool_calls": []
+    },
+    {
+      "kind": "finalization",
+      "result": {
+        "subtype": "error_max_turns"
+      },
+      "tool_calls": []
+    }
+  ],
+  "outcome": "infrastructure-failure"
+}

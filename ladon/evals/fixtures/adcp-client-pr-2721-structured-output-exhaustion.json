@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "adcp-client-pr-2721-structured-output-exhaustion",
+  "description": "Historical Ladon regression where an otherwise bounded review exhausted structured-output retries without findings.",
+  "source": {
+    "repository": "adcontextprotocol/adcp-client",
+    "pr_number": 2721,
+    "base_sha": "bfe15cc8a4083f4b860534e1df0c62f9d263492f",
+    "head_sha": "1bd402d45f3875ba835aefc2474a6a01872d0448",
+    "run_url": "https://github.com/adcontextprotocol/adcp-client/actions/runs/33145981339",
+    "comparison_success": {
+      "run_url": "https://github.com/adcontextprotocol/adcp-client/actions/runs/33145487554",
+      "head_sha": "2b529306ae2a2efbb74bd7601e2e6a992d5b9d4b",
+      "model": "claude-opus-4-8",
+      "subtype": "success",
+      "num_turns": 14,
+      "duration_ms": 154703,
+      "total_cost_usd": 1.03052275,
+      "permission_denials_count": 5
+    }
+  },
+  "expected": {
+    "required_findings": [],
+    "forbidden_outcomes": ["approve"],
+    "allow_additional_findings": true,
+    "require_completion": true,
+    "max_tool_errors": 0
+  }
+}
