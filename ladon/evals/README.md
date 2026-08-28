@@ -193,26 +193,15 @@ telemetry remains `null` rather than being counted as zero. Keep model IDs and
 adapter versions in the saved artifact so results remain attributable and
 reproducible.
 
-## OpenAI Evals API
+## Architecture boundary
 
-Keep this package and its immutable artifacts as the system of record. As of
-August 2026, OpenAI is deprecating the legacy Evals platform: it becomes
-read-only on October 31, 2026 and shuts down on November 30, 2026. In addition,
-external-model evals do not support tool calls, so that service cannot execute
-Ladon's MCP-based reviewer faithfully.
+This package, its immutable fixtures, and its normalized reports are the eval
+system of record. Model providers execute trials through narrow adapters; they
+do not own fixture storage, orchestration, grading, comparison, or promotion
+decisions.
 
-If a temporary OpenAI dashboard comparison is useful, run the real reviewer
-through provider adapters here and upload only the normalized reports to a
-custom-data eval. Use deterministic graders for completion, false approvals,
-bounded retry, tool protocol, and finding recall. Do not put the OpenAI eval run
-in the merge gate, and do not treat an upload or grader failure as approval.
-
-Third-party model access requires an OpenAI organization at usage tier 1 or
-higher plus admin enablement. OpenAI currently exposes Google, Anthropic,
-Together, and Fireworks models through external-model evals; custom endpoints
-must be HTTPS and Chat Completions compatible. Calls send data to third parties,
-so upload only content approved for those providers.
-
-- [OpenAI Evals guide](https://developers.openai.com/api/docs/guides/evals)
-- [OpenAI external-model evals](https://developers.openai.com/api/docs/guides/external-models)
-- [OpenAI Evals API reference](https://developers.openai.com/api/reference/resources/evals/methods/create)
+Do not export Ladon evals to a hosted eval platform. The reviewer depends on an
+agentic, multi-turn MCP tool loop, and a text-completion approximation does not
+test the behavior that matters. Keeping orchestration and deterministic grading
+here also prevents a provider-specific API lifecycle from becoming part of the
+reliability or merge path.
