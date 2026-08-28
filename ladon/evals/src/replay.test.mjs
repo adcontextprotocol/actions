@@ -310,7 +310,11 @@ describe('deterministic Ladon replay', () => {
     expect(gradeReplay(historicalFixture, historicalTrace)).toMatchObject({
       passed: false,
       checks: { fail_closed: true, completion: false },
-      metrics: { completion: 0, false_approvals: 0 },
+      metrics: {
+        completion: 0,
+        infrastructure_failures: 1,
+        false_approvals: 0,
+      },
       replay: {
         state_status: 'needs_finalization',
         infrastructure_failure: true,

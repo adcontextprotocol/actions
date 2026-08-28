@@ -5,10 +5,10 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "node --check src/bundle.mjs && node --check src/replay.mjs && node --check src/cli.mjs && node --check src/adapters/claude.mjs",
+    "build": "node --check src/bundle.mjs && node --check src/replay.mjs && node --check src/cli.mjs && node --check src/adapters/claude.mjs && node --check src/adapters/gemini.mjs",
     "format": "../../node_modules/.bin/biome format --write src",
     "test": "vitest run",
-    "type-check": "node --check src/bundle.mjs && node --check src/replay.mjs && node --check src/cli.mjs && node --check src/adapters/claude.mjs"
+    "type-check": "node --check src/bundle.mjs && node --check src/replay.mjs && node --check src/cli.mjs && node --check src/adapters/claude.mjs && node --check src/adapters/gemini.mjs"
   },
   "dependencies": {
     "@adcp/ladon-reviewer": "*"

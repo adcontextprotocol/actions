@@ -78,15 +78,41 @@ function errorResponse(id, code, message) {
   return { jsonrpc: '2.0', id, error: { code, message } }
 }
 
-function auditToolCall(tracePath, name, input) {
+function auditToolCall(tracePath, name, input, transportMetadata) {
   if (!tracePath) return
-  appendFileSync(tracePath, `${JSON.stringify({ name, arguments: input })}\n`, {
-    encoding: 'utf8',
-    mode: 0o600,
-  })
+  appendFileSync(
+    tracePath,
+    `${JSON.stringify({
+      name,
+      arguments: input,
+      ...(transportMetadata ? { transport_metadata: transportMetadata } : {}),
+    })}\n`,
+    {
+      encoding: 'utf8',
+      mode: 0o600,
+    },
+  )
 }
 
-export function createMcpHandler(statePath, tracePath) {
+function normalizeTransportArguments(input, normalizeGeminiSchedulerArguments) {
+  if (
+    !normalizeGeminiSchedulerArguments ||
+    typeof input?.wait_for_previous !== 'boolean'
+  ) {
+    return { input, transportMetadata: null }
+  }
+  const { wait_for_previous: waitForPrevious, ...normalized } = input
+  return {
+    input: normalized,
+    transportMetadata: { wait_for_previous: waitForPrevious },
+  }
+}
+
+export function createMcpHandler(
+  statePath,
+  tracePath,
+  { normalizeGeminiSchedulerArguments = false } = {},
+) {
   if (!statePath) throw new Error('a review state path is required')
 
   return async function handle(message) {
@@ -107,9 +133,13 @@ export function createMcpHandler(statePath, tracePath) {
     }
 
     const name = message.params?.name
-    const input = message.params?.arguments ?? {}
+    const rawInput = message.params?.arguments ?? {}
+    const { input, transportMetadata } = normalizeTransportArguments(
+      rawInput,
+      normalizeGeminiSchedulerArguments,
+    )
     try {
-      auditToolCall(tracePath, name, input)
+      auditToolCall(tracePath, name, input, transportMetadata)
       const state = readReviewState(statePath)
       if (name === 'record_finding') {
         const next = recordFinding(state, input)
@@ -146,7 +176,10 @@ export async function runServer(
   statePath = process.env.LADON_REVIEW_STATE_PATH,
   tracePath = process.env.LADON_REVIEW_TRACE_PATH,
 ) {
-  const handle = createMcpHandler(statePath, tracePath)
+  const handle = createMcpHandler(statePath, tracePath, {
+    normalizeGeminiSchedulerArguments:
+      process.env.LADON_REVIEW_GEMINI_SCHEDULER_ARGUMENTS === '1',
+  })
   const lines = createInterface({
     input: process.stdin,
     crlfDelay: Number.POSITIVE_INFINITY,
