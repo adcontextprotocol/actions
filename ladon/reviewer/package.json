@@ -1,0 +1,19 @@
+{
+  "name": "@adcp/ladon-reviewer",
+  "version": "0.1.0",
+  "description": "Deterministic finding persistence and finalization tools for Ladon.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./state": "./src/state.mjs"
+  },
+  "scripts": {
+    "build": "node --check src/state.mjs && node --check src/server.mjs && node --check src/state-cli.mjs",
+    "format": "../../node_modules/.bin/biome format --write src",
+    "test": "vitest run",
+    "type-check": "node --check src/state.mjs && node --check src/server.mjs && node --check src/state-cli.mjs"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.1"
+  }
+}

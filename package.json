@@ -13,6 +13,8 @@
   "workspaces": [
     "./ladon/setup",
     "./ladon/arbiter",
+    "./ladon/reviewer",
+    "./ladon/evals",
     "./internal/versioning"
   ],
   "lint-staged": {

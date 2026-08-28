@@ -1,0 +1,19 @@
+{
+  "name": "@adcp/ladon-evals",
+  "version": "0.1.0",
+  "description": "Deterministic replay and cross-model evaluation harness for Ladon.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "node --check src/replay.mjs && node --check src/cli.mjs",
+    "format": "../../node_modules/.bin/biome format --write src",
+    "test": "vitest run",
+    "type-check": "node --check src/replay.mjs && node --check src/cli.mjs"
+  },
+  "dependencies": {
+    "@adcp/ladon-reviewer": "*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.1"
+  }
+}

@@ -1,9 +1,11 @@
+import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { parse } from 'yaml'
 
 interface ActionStep {
+  'continue-on-error'?: boolean
   env?: Record<string, string>
   if?: string
   name?: string
@@ -13,7 +15,6 @@ interface ActionStep {
 
 describe('Ladon reviewer manifest', () => {
   const githubExpression = (expression: string) => `${'$'}{{ ${expression} }}`
-  const shellVariable = (name: string) => `${'$'}{${name}}`
   const manifest = parse(
     readFileSync(
       resolve(import.meta.dirname, '../../ladon/reviewer/action.yml'),
@@ -21,46 +22,71 @@ describe('Ladon reviewer manifest', () => {
     ),
   ) as { runs: { steps: ActionStep[] } }
 
-  test('uses native schema-validated structured output for findings', () => {
+  test('persists findings through narrow MCP tools and retries finalization once', () => {
     const assemblePrompt = manifest.runs.steps.find(
       (step) => step.name === 'Assemble prompt',
     )
     const claudeReview = manifest.runs.steps.find(
       (step) => step.name === 'Claude Code review',
     )
-    const readFindings = manifest.runs.steps.find(
-      (step) => step.name === 'Read findings JSON',
+    const inspectState = manifest.runs.steps.find(
+      (step) => step.name === 'Inspect persisted review',
+    )
+    const retrySteps = manifest.runs.steps.filter(
+      (step) => step.name === 'Finalization retry',
+    )
+    const emitFindings = manifest.runs.steps.find(
+      (step) => step.name === 'Emit findings JSON',
     )
 
-    expect(assemblePrompt?.run).not.toContain('FINDINGS_PATH')
+    expect(assemblePrompt?.run).toContain('mcp__ladon_findings__record_finding')
     expect(assemblePrompt?.run).toContain(
-      `JSON_SCHEMA="\$(jq -c . "${githubExpression('github.action_path')}/findings-schema.json")"`,
+      'mcp__ladon_findings__finalize_review',
     )
-    expect(assemblePrompt?.run).toContain(
-      `echo "json-schema=${shellVariable('JSON_SCHEMA')}"`,
-    )
-    expect(assemblePrompt?.run).toContain(
-      'Return your review through the schema-validated structured output',
+    expect(assemblePrompt?.run).not.toContain('structured output')
+    expect(claudeReview?.['continue-on-error']).toBe(true)
+    expect(claudeReview?.with?.claude_args).toContain('--mcp-config')
+    expect(claudeReview?.with?.claude_args).not.toContain('--json-schema')
+    expect(claudeReview?.with?.claude_args).toContain(
+      'mcp__ladon_findings__record_finding',
     )
     expect(claudeReview?.with?.claude_args).toContain(
-      `--add-dir ${'$'}{{ runner.temp }}`,
+      'mcp__ladon_findings__finalize_review',
     )
-    expect(claudeReview?.with?.prompt).toBe(
-      githubExpression('steps.prompt.outputs.prompt'),
+    expect(inspectState?.if).toBe(githubExpression('always()'))
+    expect(retrySteps).toHaveLength(1)
+    expect(retrySteps[0]?.if).toContain(
+      "steps.inspect.outputs.needs-finalization == 'true'",
     )
-    expect(claudeReview?.with?.claude_args).toContain(
-      `--json-schema '${githubExpression('steps.prompt.outputs.json-schema')}'`,
+    expect(retrySteps[0]?.with?.claude_args).toContain('--resume')
+    expect(retrySteps[0]?.with?.claude_args).toContain('--max-turns 3')
+    expect(retrySteps[0]?.with?.claude_args).toContain(
+      'mcp__ladon_findings__finalize_review',
     )
-    expect(claudeReview?.with?.claude_args).not.toMatch(
-      /--allowedTools .*\bWrite\b/,
+    expect(retrySteps[0]?.with?.claude_args).not.toContain(
+      'mcp__ladon_findings__record_finding',
     )
-    expect(readFindings?.env?.FINDINGS_JSON).toBe(
+    expect(emitFindings?.if).toBe(githubExpression('always()'))
+    expect(emitFindings?.run).toContain('Reviewer infrastructure failure')
+    expect(emitFindings?.run).toContain('exit 1')
+    expect(emitFindings?.run).toContain('Ladon reviewer completed')
+    expect(emitFindings?.run).toContain('Initial permission denials')
+    expect(emitFindings?.run).not.toContain(
       githubExpression('steps.claude.outputs.structured_output'),
     )
-    expect(readFindings?.run).toContain(
-      'Claude Code did not return structured findings',
-    )
-    expect(readFindings?.run).not.toContain('FINDINGS_PATH')
-    expect(readFindings?.if).toBe(githubExpression('always()'))
+  })
+
+  test('contains syntactically valid bash steps after expression interpolation', () => {
+    for (const step of manifest.runs.steps) {
+      if (!step.run) continue
+      const script = step.run.replace(/\$\{\{[^}]+\}\}/g, 'github_expression')
+      const result = spawnSync('bash', ['-n'], {
+        input: script,
+        encoding: 'utf8',
+      })
+
+      expect(result.stderr, step.name).toBe('')
+      expect(result.status, step.name).toBe(0)
+    }
   })
 })

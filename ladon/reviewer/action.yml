@@ -1,5 +1,5 @@
 name: 'Ladon — Reviewer'
-description: 'Calls anthropics/claude-code-action with the Ladon rule set, emits findings as JSON.'
+description: 'Runs the Ladon rule set and persists findings through deterministic MCP tools.'
 author: 'Ad Context Protocol'
 
 inputs:
@@ -58,8 +58,20 @@ outputs:
     description: 'Structured findings JSON conforming to reviewer/findings-schema.json'
     value: ${{ steps.findings.outputs.findings-json }}
   execution-file:
-    description: 'Path to the claude-code-action execution file (for debugging)'
-    value: ${{ steps.claude.outputs.execution_file }}
+    description: 'Path to the archived initial Claude Code execution file'
+    value: ${{ steps.inspect.outputs.execution-file }}
+  finalization-retry-execution-file:
+    description: 'Path to the finalization retry execution file when a retry ran'
+    value: ${{ steps.finalization-retry.outputs.execution_file }}
+  review-state-file:
+    description: 'Path to the deterministic persisted review state'
+    value: ${{ steps.prompt.outputs.review-state-path }}
+  review-status:
+    description: 'Deterministic review status (complete, incomplete, or needs_finalization)'
+    value: ${{ steps.inspect.outputs.state-status }}
+  result-subtype:
+    description: 'Initial Claude Code result subtype, when available'
+    value: ${{ steps.inspect.outputs.result-subtype }}
 
 runs:
   using: 'composite'
@@ -82,8 +94,18 @@ runs:
       run: |
         set -euo pipefail
         RULES="${{ github.action_path }}/rules"
-        JSON_SCHEMA="$(jq -c . "${{ github.action_path }}/findings-schema.json")"
         PROMPT_PATH="${RUNNER_TEMP}/ladon-prompt.md"
+        REVIEW_STATE_PATH="${RUNNER_TEMP}/ladon-review-state-$(openssl rand -hex 16).json"
+        MCP_CONFIG_PATH="${RUNNER_TEMP}/ladon-findings-mcp-$(openssl rand -hex 16).json"
+
+        node "${{ github.action_path }}/src/state-cli.mjs" init "${REVIEW_STATE_PATH}"
+        jq -n \
+          --arg command "$(command -v node)" \
+          --arg server "${{ github.action_path }}/src/server.mjs" \
+          --arg state "${REVIEW_STATE_PATH}" \
+          '{mcpServers:{ladon_findings:{command:$command,args:[$server],env:{LADON_REVIEW_STATE_PATH:$state}}}}' \
+          > "${MCP_CONFIG_PATH}"
+        chmod 600 "${MCP_CONFIG_PATH}"
 
         # The WG constitution lives in the spec repo, not here. Fetch it from
         # adcp@main at review time — the PR under review cannot mutate the rules
@@ -143,8 +165,8 @@ runs:
           printf '1. Read the delta diff first. Understand what changed.\n'
           printf '2. Pull the full diff only when delta context is insufficient.\n'
           printf '3. Use `gh pr view` and `gh pr diff` as needed. The checked-out workspace is pinned to the BASE SHA (%s): `Read`/`Glob`/`Grep` there show the OLD version of changed files, so treat them as base-only context. The delta and full diff files (paths above) carry the actual changes since base — rely on them to see what changed, and pair them with the base-version `Read` for surrounding context.\n' "${BASE_SHA}"
-          printf '4. Post one inline comment per finding via `mcp__github_inline_comment__create_inline_comment` (with `confirmed: true`) following the inline-comment rules above.\n'
-          printf '5. **Return your review through the schema-validated structured output.** Always include both `summary` and `findings`; use an empty `findings` array for a clean review. Do not omit the structured output.\n\n'
+          printf '4. For every confirmed finding, first post its inline comment via `mcp__github_inline_comment__create_inline_comment` (with `confirmed: true`), then immediately persist it via `mcp__ladon_findings__record_finding`. Set `posted_inline` to whether the inline call succeeded. Do not wait until the end to reconstruct findings.\n'
+          printf '5. At the end, call `mcp__ladon_findings__finalize_review` exactly once with a 1-3 sentence summary. Set `analysis_complete` to true only if all required review coverage completed; false keeps the run fail-closed. The tool state, not your final assistant text, is the review record.\n\n'
           printf 'Do NOT post a top-level PR review. Do NOT call `gh pr review`. The arbiter step handles the overall verdict.\n'
         } > "${PROMPT_PATH}"
 
@@ -156,11 +178,13 @@ runs:
           echo "prompt<<${PROMPT_EOF}"
           cat "${PROMPT_PATH}"
           echo "${PROMPT_EOF}"
-          echo "json-schema=${JSON_SCHEMA}"
+          echo "review-state-path=${REVIEW_STATE_PATH}"
+          echo "mcp-config-path=${MCP_CONFIG_PATH}"
         } >> "${GITHUB_OUTPUT}"
 
     - name: Claude Code review
       id: claude
+      continue-on-error: true
       uses: anthropics/claude-code-action@v1
       env:
         CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '0'
@@ -180,35 +204,94 @@ runs:
           --model ${{ inputs.model }}
           --max-turns ${{ inputs.max-turns }}
           --add-dir ${{ runner.temp }}
-          --json-schema '${{ steps.prompt.outputs.json-schema }}'
-          --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Read,Glob,Grep"
+          --mcp-config '${{ steps.prompt.outputs.mcp-config-path }}'
+          --allowedTools "mcp__github_inline_comment__create_inline_comment,mcp__ladon_findings__record_finding,mcp__ladon_findings__finalize_review,Bash(gh pr view:*),Bash(gh pr diff:*),Read,Glob,Grep"
 
-    - name: Read findings JSON
+    - name: Inspect persisted review
+      id: inspect
+      if: ${{ always() }}
+      continue-on-error: true
+      shell: bash
+      env:
+        REVIEW_STATE_PATH: ${{ steps.prompt.outputs.review-state-path }}
+        EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+      run: |
+        set -euo pipefail
+        INSPECTION=$(node "${{ github.action_path }}/src/state-cli.mjs" inspect "${REVIEW_STATE_PATH}" "${EXECUTION_FILE}")
+        NEEDS_FINALIZATION=$(jq -r '.needs_finalization' <<< "${INSPECTION}")
+        STATE_STATUS=$(jq -r '.status' <<< "${INSPECTION}")
+        RESULT_SUBTYPE=$(jq -r '.result_subtype // "unknown"' <<< "${INSPECTION}")
+        ARCHIVED_EXECUTION_FILE=""
+        if [[ -n "${EXECUTION_FILE}" && -f "${EXECUTION_FILE}" ]]; then
+          ARCHIVED_EXECUTION_FILE="${RUNNER_TEMP}/ladon-initial-execution-$(openssl rand -hex 16).json"
+          install -m 600 "${EXECUTION_FILE}" "${ARCHIVED_EXECUTION_FILE}"
+        fi
+        echo "needs-finalization=${NEEDS_FINALIZATION}" >> "${GITHUB_OUTPUT}"
+        echo "state-status=${STATE_STATUS}" >> "${GITHUB_OUTPUT}"
+        echo "result-subtype=${RESULT_SUBTYPE}" >> "${GITHUB_OUTPUT}"
+        echo "execution-file=${ARCHIVED_EXECUTION_FILE}" >> "${GITHUB_OUTPUT}"
+        echo "inspection-json=${INSPECTION}" >> "${GITHUB_OUTPUT}"
+        echo "Ladon reviewer state: ${INSPECTION}"
+
+    - name: Finalization retry
+      id: finalization-retry
+      if: ${{ always() && steps.inspect.outputs.needs-finalization == 'true' && steps.claude.outputs.session_id != '' }}
+      continue-on-error: true
+      uses: anthropics/claude-code-action@v1
+      env:
+        CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '0'
+      with:
+        anthropic_api_key: ${{ inputs.anthropic-api-key }}
+        github_token: ${{ inputs.github-token }}
+        allowed_non_write_users: fgranata
+        prompt: |
+          Finalize the existing Ladon review now. Do not inspect files, run commands,
+          add findings, or repeat the review. Call
+          `mcp__ladon_findings__finalize_review` exactly once with a concise 1-3
+          sentence summary of the completed analysis. Set `analysis_complete` true
+          only if the prior session completed all required coverage; otherwise set it
+          false so the review remains fail-closed. Stop immediately after the tool call.
+        claude_args: |
+          --model ${{ inputs.model }}
+          --max-turns 3
+          --resume '${{ steps.claude.outputs.session_id }}'
+          --mcp-config '${{ steps.prompt.outputs.mcp-config-path }}'
+          --allowedTools "mcp__ladon_findings__finalize_review"
+
+    - name: Emit findings JSON
       id: findings
       if: ${{ always() }}
       shell: bash
       env:
-        FINDINGS_JSON: ${{ steps.claude.outputs.structured_output }}
+        REVIEW_STATE_PATH: ${{ steps.prompt.outputs.review-state-path }}
+        EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        INITIAL_OUTCOME: ${{ steps.claude.outcome }}
+        INITIAL_INSPECTION: ${{ steps.inspect.outputs.inspection-json }}
+        RETRY_OUTCOME: ${{ steps.finalization-retry.outcome }}
       run: |
         set -euo pipefail
 
-        if [[ -z "${FINDINGS_JSON}" ]]; then
-          echo "::error::Claude Code did not return structured findings. The arbiter cannot run without schema-validated findings. Failing the job so a human investigates rather than auto-approving on empty input."
-          # Surface tool denials so a future permission regression is visible.
-          EXEC_LOG="${RUNNER_TEMP}/claude-execution-output.json"
-          if [[ -f "${EXEC_LOG}" ]]; then
-            DENIALS=$(jq -r '[.. | objects | select(has("permission_denials_count")) | .permission_denials_count] | max // empty' "${EXEC_LOG}" 2>/dev/null || true)
-            if [[ -n "${DENIALS}" && "${DENIALS}" != "0" ]]; then
-              echo "::error::The run recorded ${DENIALS} permission denial(s). Inspect the execution log for a reviewer tool-permission regression."
-            fi
+        INSPECTION=$(node "${{ github.action_path }}/src/state-cli.mjs" inspect "${REVIEW_STATE_PATH}" "${EXECUTION_FILE}" 2>/dev/null || true)
+        if ! FINDINGS_JSON=$(node "${{ github.action_path }}/src/state-cli.mjs" emit "${REVIEW_STATE_PATH}" 2>/dev/null); then
+          INSPECTION_JSON="${INSPECTION:-}"
+          if [[ -z "${INSPECTION_JSON}" ]]; then
+            INSPECTION_JSON='{}'
           fi
-          exit 1
-        fi
-
-        if ! jq empty <<< "${FINDINGS_JSON}" >/dev/null 2>&1; then
-          echo "::error::Claude Code structured findings are not valid JSON."
-          echo "First 500 bytes:"
-          head -c 500 <<< "${FINDINGS_JSON}" || true
+          STATUS=$(jq -r '.status // "invalid"' <<< "${INSPECTION_JSON}" 2>/dev/null || echo "invalid")
+          SUBTYPE=$(jq -r '.result_subtype // "unknown"' <<< "${INSPECTION_JSON}" 2>/dev/null || echo "unknown")
+          {
+            echo "### Reviewer infrastructure failure"
+            echo
+            echo "Ladon did not produce a complete deterministic review record after its single finalization retry."
+            echo
+            echo "- State: \`${STATUS}\`"
+            echo "- Model result: \`${SUBTYPE}\`"
+            echo "- Initial action: \`${INITIAL_OUTCOME:-unknown}\`"
+            echo "- Finalization retry: \`${RETRY_OUTCOME:-not-run}\`"
+            echo
+            echo "This is reviewer infrastructure failure, not a code rejection. The arbiter was not run and the PR was not approved."
+          } >> "${GITHUB_STEP_SUMMARY}"
+          echo "::error title=Ladon reviewer infrastructure failure::No complete review record after one finalization retry (state=${STATUS}, result=${SUBTYPE}). This is not a code rejection; the arbiter is skipped and the run fails closed."
           exit 1
         fi
 
@@ -218,6 +301,22 @@ runs:
           printf '%s\n' "${FINDINGS_JSON}"
           echo "${FINDINGS_EOF}"
         } >> "${GITHUB_OUTPUT}"
+
+        TELEMETRY_JSON="${INITIAL_INSPECTION:-}"
+        if [[ -z "${TELEMETRY_JSON}" ]]; then
+          TELEMETRY_JSON='{}'
+        fi
+        {
+          echo "### Ladon reviewer completed"
+          echo
+          echo "- Persisted findings: $(jq -r '.findings_count // 0' <<< "${TELEMETRY_JSON}")"
+          echo "- Initial model result: \`$(jq -r '.result_subtype // "unknown"' <<< "${TELEMETRY_JSON}")\`"
+          echo "- Initial turns: $(jq -r '.turns // "unknown"' <<< "${TELEMETRY_JSON}")"
+          echo "- Initial duration (ms): $(jq -r '.duration_ms // "unknown"' <<< "${TELEMETRY_JSON}")"
+          echo "- Initial cost (USD): $(jq -r '.total_cost_usd // "unknown"' <<< "${TELEMETRY_JSON}")"
+          echo "- Initial permission denials: $(jq -r '.permission_denials_count // "unknown"' <<< "${TELEMETRY_JSON}")"
+          echo "- Finalization retry: \`${RETRY_OUTCOME:-not-run}\`"
+        } >> "${GITHUB_STEP_SUMMARY}"
 
 branding:
   icon: 'search'
