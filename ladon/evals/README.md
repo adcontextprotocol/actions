@@ -116,11 +116,34 @@ than in the evaluator.
 
 ```sh
 node ladon/evals/src/cli.mjs run \
-  --fixture path/to/fixture.json \
+  --fixtures fixture-a.json,fixture-b.json \
   --adapter './path/to/provider-adapter' \
   --provider provider-name \
   --models exact-model-a,exact-model-b \
   --repetitions 5 \
+  --concurrency 4 \
+  --timeout-ms 900000 \
+  --out .context/model-comparison.json
+```
+
+Concurrency is global to that invocation and defaults to one. Keep it bounded
+to the provider's rate and spend limits. Reports remain in deterministic
+fixture/model/trial order even when trials finish out of order. The output file
+is replaced atomically after every completed trial, with `status`, `completed`,
+and `total` fields, so a terminated batch retains its completed work.
+
+An adapter timeout, non-zero exit, invalid JSON response, or invalid trace is
+recorded as a failed, fail-closed trial with a `runner_error`; it does not abort
+the rest of the matrix. Adapter stderr is whitespace-normalized and truncated
+before it enters the report. Do not print credentials or review content to
+stderr.
+
+Run one invocation per provider adapter in parallel CI jobs, then combine their
+artifacts without re-running a model:
+
+```sh
+node ladon/evals/src/cli.mjs merge \
+  --reports anthropic-report.json,google-report.json,openai-report.json \
   --out .context/model-comparison.json
 ```
 
@@ -128,6 +151,32 @@ Adapters must run in an isolated checkout, expose only read tools plus the two
 in-memory Ladon persistence tools, and must not receive a GitHub write token.
 This makes replay safe: no inline comments, reviews, labels, or other PR state
 are changed during an eval.
+
+The committed incident fixtures are currently deterministic replay cases, not
+self-contained live-model inputs. They identify immutable base/head SHAs and
+expected behavior, but they do not bundle the historical prompt, rules, diff,
+and repository snapshot. Do not describe a replay-only result as a model
+comparison.
+
+A live provider adapter must:
+
+1. Materialize the exact fixture base/head into an isolated checkout.
+2. Render one fixed Ladon prompt and rule set for every candidate model.
+3. Expose read-only repository tools and the `record_finding` and
+   `finalize_review` MCP tools, with no GitHub write credential.
+4. Capture the ordered MCP calls directly rather than reconstructing them from
+   final assistant text.
+5. Perform no more than one finalization-only retry against the same persisted
+   state.
+6. Emit the normalized trace contract above, including exact provider/model ID
+   and available duration, turn, permission-denial, and cost telemetry.
+
+For CI, use a manually dispatched workflow with `permissions: contents: read`,
+one job per provider adapter, `strategy.fail-fast: false`, and a conservative
+`max-parallel`. Put provider credentials in a protected eval environment. Each
+provider job uploads its checkpointed report even on failure; a final job
+downloads and merges the reports. Live evals should never run on every pull
+request or receive Ladon's production GitHub App token.
 
 For promotion decisions, use the same immutable fixtures and agent/tool
 configuration for every model. Run at least five trials for a smoke comparison
@@ -139,5 +188,31 @@ and twenty per model for a promotion decision. Treat these as hard gates:
 - no regression in required-finding recall on the issue-detection set.
 
 Then compare completion rate, recall, unexpected findings, tool errors, retry
-rate, latency, turns, and cost. Keep model IDs and adapter versions in the saved
-artifact so results remain attributable and reproducible.
+rate, runner-error rate, latency, turns, permission denials, and cost. Missing
+telemetry remains `null` rather than being counted as zero. Keep model IDs and
+adapter versions in the saved artifact so results remain attributable and
+reproducible.
+
+## OpenAI Evals API
+
+Keep this package and its immutable artifacts as the system of record. As of
+August 2026, OpenAI is deprecating the legacy Evals platform: it becomes
+read-only on October 31, 2026 and shuts down on November 30, 2026. In addition,
+external-model evals do not support tool calls, so that service cannot execute
+Ladon's MCP-based reviewer faithfully.
+
+If a temporary OpenAI dashboard comparison is useful, run the real reviewer
+through provider adapters here and upload only the normalized reports to a
+custom-data eval. Use deterministic graders for completion, false approvals,
+bounded retry, tool protocol, and finding recall. Do not put the OpenAI eval run
+in the merge gate, and do not treat an upload or grader failure as approval.
+
+Third-party model access requires an OpenAI organization at usage tier 1 or
+higher plus admin enablement. OpenAI currently exposes Google, Anthropic,
+Together, and Fireworks models through external-model evals; custom endpoints
+must be HTTPS and Chat Completions compatible. Calls send data to third parties,
+so upload only content approved for those providers.
+
+- [OpenAI Evals guide](https://developers.openai.com/api/docs/guides/evals)
+- [OpenAI external-model evals](https://developers.openai.com/api/docs/guides/external-models)
+- [OpenAI Evals API reference](https://developers.openai.com/api/reference/resources/evals/methods/create)

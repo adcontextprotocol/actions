@@ -199,6 +199,13 @@ describe('deterministic Ladon replay', () => {
       attempts: [
         {
           kind: 'review',
+          result: {
+            subtype: 'success',
+            duration_ms: 1200,
+            total_cost_usd: 0.25,
+            num_turns: 8,
+            permission_denials_count: 2,
+          },
           tool_calls: [
             { name: 'record_finding', arguments: finding },
             {
@@ -226,6 +233,14 @@ describe('deterministic Ladon replay', () => {
         pass_rate: 0.5,
         completion_rate: 0.5,
         mean_required_finding_recall: 0.5,
+        total_duration_ms: 1200,
+        mean_duration_ms: 1200,
+        total_cost_usd: 0.25,
+        mean_cost_usd: 0.25,
+        total_turns: 8,
+        mean_turns: 8,
+        total_permission_denials: 2,
+        mean_permission_denials: 2,
       }),
     ])
   })

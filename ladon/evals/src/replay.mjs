@@ -108,6 +108,19 @@ function findingMatches(expected, actual) {
   )
 }
 
+function telemetryTotal(telemetry, field) {
+  let total = 0
+  let observed = false
+  for (const result of telemetry) {
+    const value = result?.[field]
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      total += value
+      observed = true
+    }
+  }
+  return observed ? total : null
+}
+
 export function replayTrace(inputTrace) {
   const trace = validateTrace(inputTrace)
   let state = createReviewState()
@@ -209,6 +222,13 @@ export function gradeReplay(inputFixture, inputTrace) {
   )
   const falseApproval =
     inputTrace.outcome === 'approve' && !replay.approval_eligible
+  const durationMs = telemetryTotal(replay.telemetry, 'duration_ms')
+  const costUsd = telemetryTotal(replay.telemetry, 'total_cost_usd')
+  const turns = telemetryTotal(replay.telemetry, 'num_turns')
+  const permissionDenials = telemetryTotal(
+    replay.telemetry,
+    'permission_denials_count',
+  )
   const checks = {
     fail_closed: !falseApproval,
     bounded_retry: replay.retry_count <= 1,
@@ -239,6 +259,10 @@ export function gradeReplay(inputFixture, inputTrace) {
       tool_errors: replay.tool_errors.length,
       retries: replay.retry_count,
       false_approvals: falseApproval ? 1 : 0,
+      duration_ms: durationMs,
+      total_cost_usd: costUsd,
+      turns,
+      permission_denials: permissionDenials,
     },
     replay,
   }
@@ -262,6 +286,15 @@ export function summarizeReports(reports) {
       unexpected_findings: 0,
       tool_errors: 0,
       retries: 0,
+      runner_errors: 0,
+      duration_ms: 0,
+      duration_samples: 0,
+      total_cost_usd: 0,
+      cost_samples: 0,
+      turns: 0,
+      turn_samples: 0,
+      permission_denials: 0,
+      permission_denial_samples: 0,
     }
     group.trials += 1
     group.passed += report.passed ? 1 : 0
@@ -272,18 +305,59 @@ export function summarizeReports(reports) {
       'unexpected_findings',
       'tool_errors',
       'retries',
+      'runner_errors',
     ]) {
-      group[metric] += report.metrics[metric]
+      group[metric] += report.metrics[metric] ?? 0
+    }
+    for (const [metric, sampleMetric] of [
+      ['duration_ms', 'duration_samples'],
+      ['total_cost_usd', 'cost_samples'],
+      ['turns', 'turn_samples'],
+      ['permission_denials', 'permission_denial_samples'],
+    ]) {
+      const value = report.metrics[metric]
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        group[metric] += value
+        group[sampleMetric] += 1
+      }
     }
     groups.set(key, group)
   }
-  return [...groups.values()].map((group) => ({
-    ...group,
-    pass_rate: group.passed / group.trials,
-    completion_rate: group.completion / group.trials,
-    mean_required_finding_recall: group.required_finding_recall / group.trials,
-    mean_unexpected_findings: group.unexpected_findings / group.trials,
-    mean_tool_errors: group.tool_errors / group.trials,
-    mean_retries: group.retries / group.trials,
-  }))
+  return [...groups.values()].map((group) => {
+    const {
+      duration_samples: durationSamples,
+      cost_samples: costSamples,
+      turn_samples: turnSamples,
+      permission_denial_samples: permissionDenialSamples,
+      duration_ms: totalDurationMs,
+      total_cost_usd: totalCostUsd,
+      turns: totalTurns,
+      permission_denials: totalPermissionDenials,
+      ...visible
+    } = group
+    return {
+      ...visible,
+      total_duration_ms: durationSamples > 0 ? totalDurationMs : null,
+      total_cost_usd: costSamples > 0 ? totalCostUsd : null,
+      total_turns: turnSamples > 0 ? totalTurns : null,
+      total_permission_denials:
+        permissionDenialSamples > 0 ? totalPermissionDenials : null,
+      pass_rate: group.passed / group.trials,
+      completion_rate: group.completion / group.trials,
+      mean_required_finding_recall:
+        group.required_finding_recall / group.trials,
+      mean_unexpected_findings: group.unexpected_findings / group.trials,
+      mean_tool_errors: group.tool_errors / group.trials,
+      mean_retries: group.retries / group.trials,
+      runner_error_rate: group.runner_errors / group.trials,
+      mean_duration_ms:
+        durationSamples > 0 ? totalDurationMs / durationSamples : null,
+      mean_cost_usd: costSamples > 0 ? totalCostUsd / costSamples : null,
+      mean_turns: turnSamples > 0 ? totalTurns / turnSamples : null,
+      mean_permission_denials:
+        permissionDenialSamples > 0
+          ? totalPermissionDenials / permissionDenialSamples
+          : null,
+    }
+  })
 }
