@@ -4,6 +4,7 @@ import {
   recordFinding,
   reviewStateStatus,
 } from '@adcp/ladon-reviewer/state'
+import { validateBundleInput } from './bundle.mjs'
 
 const attemptKinds = new Set(['review', 'finalization'])
 const outcomes = new Set([
@@ -45,10 +46,20 @@ export function validateFixture(input) {
   ) {
     throw new Error('expected.forbidden_outcomes contains an invalid outcome')
   }
+  const bundleInput =
+    input.input === undefined ? undefined : validateBundleInput(input.input)
+  if (
+    bundleInput !== undefined &&
+    bundleInput.outcome !== null &&
+    !outcomes.has(bundleInput.outcome)
+  ) {
+    throw new Error('fixture input outcome is invalid')
+  }
   return {
     ...input,
     id: requiredString(input.id, 'fixture id'),
     description: requiredString(input.description, 'fixture description'),
+    ...(bundleInput === undefined ? {} : { input: bundleInput }),
     expected: {
       ...input.expected,
       required_findings: requiredFindings.map((finding, index) => {
@@ -187,6 +198,9 @@ export function replayTrace(inputTrace) {
     fixture_id: trace.fixture_id,
     provider: trace.provider,
     model: trace.model,
+    trial: trace.trial ?? null,
+    bundle_digest: trace.bundle_digest ?? null,
+    adapter: trace.adapter ?? null,
     state,
     state_status: stateStatus,
     infrastructure_failure: infrastructureFailure,
@@ -247,6 +261,9 @@ export function gradeReplay(inputFixture, inputTrace) {
     fixture_id: fixture.id,
     provider: replay.provider,
     model: replay.model,
+    trial: replay.trial,
+    bundle_digest: replay.bundle_digest,
+    adapter: replay.adapter,
     passed: Object.values(checks).every(Boolean),
     checks,
     metrics: {

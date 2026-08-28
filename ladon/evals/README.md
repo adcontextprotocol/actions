@@ -24,6 +24,10 @@ The committed regression suite verifies that:
 - the historical PR 6883 exhaustion is classified as infrastructure failure.
 - adcp-client PR 2721's `error_max_structured_output_retries` incident is
   retained with its turn, duration, cost, and permission-denial telemetry.
+- live input bundles are content-addressed and confined to an isolated
+  workspace; and
+- the Claude adapter captures ordered MCP calls directly and performs at most
+  one finalization-only retry.
 
 That historical trace fails its completion gate. The paired
 `pr-6883-fixed-finalization-recovery.json` trace exercises the new one-retry
@@ -96,6 +100,73 @@ calls, not a reconstructed final answer. The optional second attempt must be
   "outcome": "request-changes"
 }
 ```
+
+## Immutable live-model bundles
+
+A live fixture adds an `input` object containing a prompt template and embedded,
+content-addressed files. Prompt tokens use `{{file:relative/path}}`; the adapter
+replaces them with paths inside a new isolated workspace. Absolute paths,
+parent-directory traversal, duplicate paths, unknown prompt tokens, and SHA-256
+mismatches are rejected before a model runs.
+
+The committed `tool-contract-unbounded-retry.json` case is intentionally a
+small infrastructure contract test. It verifies that a model records a finding
+through MCP and explicitly finalizes; it is not evidence of code-review
+quality. Historical incident fixtures remain replay-only until their complete
+review inputs are captured as immutable bundles.
+
+## Claude live adapter
+
+The Claude adapter mirrors the production reviewer contract: it runs an exact
+model ID through Claude Code, exposes only `Read`, `record_finding`, and
+`finalize_review`, and reads the ordered calls from Ladon's MCP audit log. It
+does not parse Claude's final response for findings. If the persisted state is
+not finalized and Claude returned a session ID, it resumes that session once
+with the compact finalization-only prompt and a three-turn limit.
+
+The adapter uses Claude Code's reproducible `--bare` mode and therefore requires
+`ANTHROPIC_API_KEY`. It removes GitHub and Secretariat credentials from the
+child environment by constructing a narrow allowlist rather than inheriting the
+runner environment. Do not pass Ladon's GitHub App token to the eval process.
+The manual workflow pins the Claude Code CLI version and records it in the
+adapter identifier; local runs without an explicit identifier are marked
+unpinned. Each initial trial has a $2 budget cap and its compact retry has a
+$0.25 cap by default; both are configurable through adapter environment
+variables.
+
+Run a five-trial baseline against the model currently configured in Ladon's
+workflow:
+
+```sh
+node ladon/evals/src/cli.mjs run \
+  --fixture ladon/evals/fixtures/tool-contract-unbounded-retry.json \
+  --adapter 'node ladon/evals/src/adapters/claude.mjs' \
+  --provider anthropic \
+  --models claude-opus-4-8 \
+  --repetitions 5 \
+  --concurrency 2 \
+  --out .context/ladon-claude-baseline.json
+```
+
+Use conservative concurrency until the organization's Anthropic rate and spend
+limits are known. The report records a bundle digest and adapter version so a
+result cannot be confused with a different input or execution path.
+
+After the manual workflow is present on the default branch, start the same
+baseline with:
+
+```sh
+gh workflow run ladon-evals.yml \
+  --repo adcontextprotocol/actions \
+  -f models=claude-opus-4-8 \
+  -f repetitions=5 \
+  -f concurrency=2
+```
+
+The workflow has only `contents: read`, installs a pinned Claude Code version,
+enforces per-trial spend and time limits, always uploads the checkpointed report
+for 30 days, and fails unless every contract trial passes with zero false
+approvals.
 
 Grade one or more saved traces without making model calls:
 
