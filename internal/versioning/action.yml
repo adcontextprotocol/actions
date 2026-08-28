@@ -1,0 +1,32 @@
+name: 'Version Actions'
+description: 'Automatically version composite actions on merge to main'
+
+inputs:
+  token:
+    description: 'GitHub token with permissions to create tags'
+    required: false
+    default: ${{ github.token }}
+  dryRun:
+    description: 'Dry run mode, will not create tags'
+    required: false
+    default: 'false'
+  runForAll:
+    description: 'For the initial tagging of all actions'
+    required: false
+    default: 'false'
+  package:
+    description: 'Run for a specific package'
+    required: false
+    default: ''
+
+outputs:
+  versioned-actions:
+    description: 'JSON array of versioned actions: [{name, version, previousVersion, isMajor}]'
+
+runs:
+  using: 'node24'
+  main: 'dist/index.js'
+
+branding:
+  icon: 'tag'
+  color: 'blue'

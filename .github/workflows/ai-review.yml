@@ -1,0 +1,101 @@
+name: AI PR Review (Ladon)
+
+# Ladon reviews every non-draft, non-dependabot PR. The heavy lifting lives in
+# the action tree under ladon/ (setup -> reviewer -> arbiter), orchestrated by
+# ladon/review. This workflow handles the pull_request_target security posture
+# (trusted base-SHA checkout only; the PR head is never fetched, checked out, or
+# executed - setup reads head content via the GitHub API), the
+# review-workflow-modification gate, and invoking the composite. Reviews post as
+# the AAO Secretariat App so they count toward the "1 review required"
+# branch-protection check.
+#
+# pull_request_target (not pull_request) is required on a public repo so that PRs
+# from forks can access the App token and Anthropic key.
+
+on:
+  pull_request_target:
+    types: [opened, labeled, ready_for_review, synchronize]
+    paths-ignore:
+      - '.github/workflows/ai-review.yml'
+      - 'ladon/**'
+      - 'LADON.md'
+
+jobs:
+  code_review:
+    if: github.actor != 'dependabot[bot]' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      # Trusted base-SHA checkout. Never check out or execute PR-head code.
+      # The PR head is never fetched: setup derives the diff/delta and changed
+      # files entirely from the GitHub API.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+
+      - name: Mint App token (for the workflow-mod gate comment)
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.SECRETARIAT_APP_ID }}
+          private-key: ${{ secrets.SECRETARIAT_APP_PRIVATE_KEY }}
+
+      # Workflow-modification gate: if this PR touches the review system itself,
+      # a human owns it. paths-ignore suppresses pure-review-file PRs; this
+      # handles mixed PRs.
+      - name: Check for review-workflow modifications
+        id: workflow-mod
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          CHANGED="$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" --jq '.[].filename')"
+          MODIFIED=""
+          while IFS= read -r f; do
+            case "$f" in
+              ladon/*|.github/workflows/ai-review.yml|LADON.md)
+                MODIFIED="${MODIFIED}${f}"$'\n' ;;
+            esac
+          done <<< "$CHANGED"
+          if [ -n "$MODIFIED" ]; then
+            echo "modified=true" >> "$GITHUB_OUTPUT"
+            echo "modified_files<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$MODIFIED" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          else
+            echo "modified=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Comment and skip when PR modifies review workflow
+        if: steps.workflow-mod.outputs.modified == 'true'
+        uses: actions/github-script@v7
+        env:
+          MODIFIED_FILES: ${{ steps.workflow-mod.outputs.modified_files }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const files = (process.env.MODIFIED_FILES || '').trim().split('\n').map(f => `\`${f}\``).join(', ');
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              event: 'COMMENT',
+              body: `Ladon is **not auto-reviewing** this PR because it modifies the review system itself (${files}). A human reviewer should review and merge this PR; Ladon resumes on subsequent PRs once these changes land on \`main\`.`
+            });
+
+      - name: Run Ladon
+        if: steps.workflow-mod.outputs.modified != 'true'
+        uses: ./ladon/review
+        with:
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          app-id: ${{ secrets.SECRETARIAT_APP_ID }}
+          app-private-key: ${{ secrets.SECRETARIAT_APP_PRIVATE_KEY }}
+          model: claude-opus-4-8

@@ -1,0 +1,22 @@
+# Check if only files in .github/ are changed
+ONLY_GITHUB_FILES=true
+for file in $(git diff --cached --name-only); do
+  if [[ ! "$file" =~ ^\.github/ ]]; then
+    ONLY_GITHUB_FILES=false
+    break
+  fi
+done
+
+# Skip hook if only .github/ files are changed
+if [ "$ONLY_GITHUB_FILES" = true ]; then
+  echo "Only .github/ files changed, skipping pre-commit hook"
+  exit 0
+fi
+
+npm run pre-commit
+# Stage any new dist files that were generated
+git add "**/dist/**"
+# Re-stage any files that were modified during the build
+if ! git diff --cached --quiet; then
+    git add -u
+fi

@@ -1,0 +1,4 @@
+# The repo root .gitignore ignores dist/ globally. This action's dist/index.js
+# is a committed ncc bundle (the GitHub Action runtime), so un-ignore it here.
+!dist/
+!dist/**
