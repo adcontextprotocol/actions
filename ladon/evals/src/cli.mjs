@@ -66,8 +66,9 @@ function compactError(value) {
 
 function runAdapter(command, request, { timeoutMs, maxBuffer }) {
   return new Promise((resolvePromise, rejectPromise) => {
+    const detached = process.platform !== 'win32'
     const child = spawn(command, [], {
-      encoding: 'utf8',
+      detached,
       shell: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
@@ -83,11 +84,19 @@ function runAdapter(command, request, { timeoutMs, maxBuffer }) {
       clearTimeout(timeout)
       callback()
     }
+    const terminate = () => {
+      try {
+        if (detached && child.pid) process.kill(-child.pid, 'SIGKILL')
+        else child.kill('SIGKILL')
+      } catch (error) {
+        if (error?.code !== 'ESRCH') throw error
+      }
+    }
     const append = (current, chunk) => {
       const next = current + chunk
       if (next.length > maxBuffer) {
         overflowed = true
-        child.kill('SIGKILL')
+        terminate()
       }
       return next.slice(0, maxBuffer)
     }
@@ -152,7 +161,7 @@ function runAdapter(command, request, { timeoutMs, maxBuffer }) {
 
     const timeout = setTimeout(() => {
       timedOut = true
-      child.kill('SIGKILL')
+      terminate()
     }, timeoutMs)
 
     child.stdin.on('error', () => {})
