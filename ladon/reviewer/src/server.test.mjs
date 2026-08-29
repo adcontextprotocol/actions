@@ -123,6 +123,54 @@ describe('findings MCP server', () => {
     expect(readReviewState(statePath).findings).toEqual([])
   })
 
+  test('normalizes Gemini scheduler metadata only when explicitly enabled', async () => {
+    const disabled = harness()
+    const rejected = await disabled.handle({
+      jsonrpc: '2.0',
+      id: 4,
+      method: 'tools/call',
+      params: {
+        name: 'record_finding',
+        arguments: { ...finding, wait_for_previous: true },
+      },
+    })
+    expect(rejected.result.isError).toBe(true)
+    expect(readReviewState(disabled.statePath).findings).toEqual([])
+
+    const enabled = harness()
+    const handle = createMcpHandler(enabled.statePath, enabled.tracePath, {
+      normalizeGeminiSchedulerArguments: true,
+    })
+    const accepted = await handle({
+      jsonrpc: '2.0',
+      id: 5,
+      method: 'tools/call',
+      params: {
+        name: 'record_finding',
+        arguments: { ...finding, wait_for_previous: true },
+      },
+    })
+
+    expect(accepted.result.isError).toBe(false)
+    expect(readReviewState(enabled.statePath).findings).toEqual([finding])
+    expect(JSON.parse(readFileSync(enabled.tracePath, 'utf8'))).toEqual({
+      name: 'record_finding',
+      arguments: finding,
+      transport_metadata: { wait_for_previous: true },
+    })
+
+    const invalid = await handle({
+      jsonrpc: '2.0',
+      id: 6,
+      method: 'tools/call',
+      params: {
+        name: 'record_finding',
+        arguments: { ...finding, wait_for_previous: 'true' },
+      },
+    })
+    expect(invalid.result.isError).toBe(true)
+  })
+
   test('finalizes a clean review only through the explicit tool', async () => {
     const { statePath, handle } = harness()
     const response = await handle({

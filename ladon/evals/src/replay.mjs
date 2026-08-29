@@ -268,6 +268,7 @@ export function gradeReplay(inputFixture, inputTrace) {
     checks,
     metrics: {
       completion: replay.infrastructure_failure ? 0 : 1,
+      infrastructure_failures: replay.infrastructure_failure ? 1 : 0,
       required_finding_recall:
         matched.length === 0
           ? 1
@@ -304,6 +305,7 @@ export function summarizeReports(reports) {
       tool_errors: 0,
       retries: 0,
       runner_errors: 0,
+      infrastructure_failures: 0,
       duration_ms: 0,
       duration_samples: 0,
       total_cost_usd: 0,
@@ -323,6 +325,7 @@ export function summarizeReports(reports) {
       'tool_errors',
       'retries',
       'runner_errors',
+      'infrastructure_failures',
     ]) {
       group[metric] += report.metrics[metric] ?? 0
     }
@@ -367,6 +370,7 @@ export function summarizeReports(reports) {
       mean_tool_errors: group.tool_errors / group.trials,
       mean_retries: group.retries / group.trials,
       runner_error_rate: group.runner_errors / group.trials,
+      infrastructure_failure_rate: group.infrastructure_failures / group.trials,
       mean_duration_ms:
         durationSamples > 0 ? totalDurationMs / durationSamples : null,
       mean_cost_usd: costSamples > 0 ? totalCostUsd / costSamples : null,

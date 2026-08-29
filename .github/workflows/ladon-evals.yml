@@ -3,11 +3,21 @@ name: Ladon Model Evals
 on:
   workflow_dispatch:
     inputs:
-      models:
+      providers:
+        description: "Comma-separated providers: google,anthropic"
+        required: true
+        type: string
+        default: "google"
+      claude_models:
         description: "Comma-separated exact Claude model IDs"
         required: true
         type: string
         default: "claude-opus-4-8"
+      gemini_models:
+        description: "Comma-separated exact Gemini model IDs"
+        required: true
+        type: string
+        default: "gemini-3.1-pro-preview"
       repetitions:
         description: "Trials per model"
         required: true
@@ -23,8 +33,28 @@ permissions:
   contents: read
 
 jobs:
+  validate_selection:
+    name: Validate provider selection
+    runs-on: ubuntu-latest
+    env:
+      PROVIDERS: ${{ inputs.providers }}
+    steps:
+      - name: Require known providers
+        run: |
+          set -euo pipefail
+          test -n "${PROVIDERS}"
+          IFS=',' read -ra selected <<< "${PROVIDERS}"
+          for provider in "${selected[@]}"; do
+            case "${provider}" in
+              google|anthropic) ;;
+              *) echo "Unknown provider: ${provider}" >&2; exit 1 ;;
+            esac
+          done
+
   claude_contract:
     name: Claude tool-contract baseline
+    if: contains(inputs.providers, 'anthropic')
+    needs: validate_selection
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -35,14 +65,14 @@ jobs:
       LADON_EVAL_CLAUDE_MAX_BUDGET_USD: "2"
       LADON_EVAL_CLAUDE_RETRY_MAX_BUDGET_USD: "0.25"
       LADON_EVAL_CLAUDE_TIMEOUT_MS: "300000"
-      MODELS: ${{ inputs.models }}
+      MODELS: ${{ inputs.claude_models }}
       REPETITIONS: ${{ inputs.repetitions }}
       CONCURRENCY: ${{ inputs.concurrency }}
       REPORT_PATH: ladon-eval-report.json
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -52,6 +82,9 @@ jobs:
 
       - name: Install pinned Claude Code
         run: npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+
+      - name: Verify Anthropic credential
+        run: test -n "${ANTHROPIC_API_KEY}"
 
       - name: Run Claude contract evals
         run: |
@@ -71,16 +104,87 @@ jobs:
           {
             echo '### Ladon Claude contract eval'
             echo
-            echo '| Model | Trials | Pass rate | Completion | Runner errors | Mean turns | Mean cost |'
-            echo '|---|---:|---:|---:|---:|---:|---:|'
-            jq -r '.summary[] | "| \(.model) | \(.trials) | \(.pass_rate) | \(.completion_rate) | \(.runner_error_rate) | \(.mean_turns // "n/a") | \(.mean_cost_usd // "n/a") |"' "${REPORT_PATH}"
+            echo '| Model | Trials | Pass rate | Completion | Infrastructure failures | Runner errors | Mean turns | Mean cost |'
+            echo '|---|---:|---:|---:|---:|---:|---:|---:|'
+            jq -r '.summary[] | "| \(.model) | \(.trials) | \(.pass_rate) | \(.completion_rate) | \(.infrastructure_failure_rate) | \(.runner_error_rate) | \(.mean_turns // "n/a") | \(.mean_cost_usd // "n/a") |"' "${REPORT_PATH}"
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload eval report
         if: always() && hashFiles(env.REPORT_PATH) != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ladon-claude-contract-${{ github.run_id }}
+          path: ${{ env.REPORT_PATH }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce contract gate
+        if: always()
+        run: |
+          test -f "${REPORT_PATH}"
+          jq -e '.status == "complete" and (.reports | length > 0) and (.reports | all(.passed == true and .metrics.false_approvals == 0))' "${REPORT_PATH}"
+
+  gemini_contract:
+    name: Gemini tool-contract baseline
+    if: contains(inputs.providers, 'google')
+    needs: validate_selection
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_CLI_VERSION: "0.57.0"
+      LADON_EVAL_GEMINI_ADAPTER_ID: "gemini-cli-v1+0.57.0"
+      LADON_EVAL_GEMINI_MAX_TURNS: "60"
+      LADON_EVAL_GEMINI_TIMEOUT_MS: "300000"
+      MODELS: ${{ inputs.gemini_models }}
+      REPETITIONS: ${{ inputs.repetitions }}
+      CONCURRENCY: ${{ inputs.concurrency }}
+      REPORT_PATH: ladon-gemini-eval-report.json
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install pinned Gemini CLI
+        run: npm install --global "@google/gemini-cli@${GEMINI_CLI_VERSION}"
+
+      - name: Verify Gemini credential
+        run: test -n "${GEMINI_API_KEY}"
+
+      - name: Run Gemini contract evals
+        run: |
+          node ladon/evals/src/cli.mjs run \
+            --fixture ladon/evals/fixtures/tool-contract-unbounded-retry.json \
+            --adapter 'node ladon/evals/src/adapters/gemini.mjs' \
+            --provider google \
+            --models "${MODELS}" \
+            --repetitions "${REPETITIONS}" \
+            --concurrency "${CONCURRENCY}" \
+            --timeout-ms 330000 \
+            --out "${REPORT_PATH}"
+
+      - name: Render summary
+        if: always() && hashFiles(env.REPORT_PATH) != ''
+        run: |
+          {
+            echo '### Ladon Gemini contract eval'
+            echo
+            echo '| Model | Trials | Pass rate | Completion | Infrastructure failures | Runner errors | Mean turns |'
+            echo '|---|---:|---:|---:|---:|---:|---:|'
+            jq -r '.summary[] | "| \(.model) | \(.trials) | \(.pass_rate) | \(.completion_rate) | \(.infrastructure_failure_rate) | \(.runner_error_rate) | \(.mean_turns // "n/a") |"' "${REPORT_PATH}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload eval report
+        if: always() && hashFiles(env.REPORT_PATH) != ''
+        uses: actions/upload-artifact@v5
+        with:
+          name: ladon-gemini-contract-${{ github.run_id }}
           path: ${{ env.REPORT_PATH }}
           if-no-files-found: error
           retention-days: 30

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { gradeReplay } from '../replay.mjs'
-import { runClaudeAdapter } from './claude.mjs'
+import { runGeminiAdapter } from './gemini.mjs'
 
 function fixture() {
   return JSON.parse(
@@ -17,23 +17,25 @@ function fixture() {
   )
 }
 
-function fakeClaude() {
-  const directory = mkdtempSync(join(tmpdir(), 'ladon-fake-claude-'))
-  const path = join(directory, 'claude')
+function fakeGemini() {
+  const directory = mkdtempSync(join(tmpdir(), 'ladon-fake-gemini-'))
+  const path = join(directory, 'gemini')
   writeFileSync(
     path,
     `#!/usr/bin/env node
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 const args = process.argv.slice(2)
-if (process.env.GITHUB_TOKEN) {
-  process.stderr.write('GitHub token leaked into eval adapter')
+if (process.env.GITHUB_TOKEN || process.env.SECRETARIAT_APP_PRIVATE_KEY) {
+  process.stderr.write('privileged token leaked into eval adapter')
   process.exit(10)
 }
-const configPath = args[args.indexOf('--mcp-config') + 1]
-const config = JSON.parse(readFileSync(configPath, 'utf8'))
-const server = config.mcpServers.ladon_findings
+const settings = JSON.parse(
+  readFileSync(join(process.env.HOME, '.gemini', 'settings.json'), 'utf8')
+)
+const server = settings.mcpServers['ladon-findings']
 const retry = args.includes('--resume')
 const finding = {
   severity: 'medium',
@@ -77,12 +79,16 @@ if (result.status !== 0) {
   process.exit(result.status ?? 1)
 }
 process.stdout.write(JSON.stringify({
-  subtype: 'success',
+  response: 'done',
   session_id: 'test-session',
-  num_turns: 1,
-  duration_ms: 25,
-  total_cost_usd: 0.01,
-  permission_denials: []
+  stats: {
+    models: {
+      'gemini-test-model': {
+        api: { totalRequests: 1, totalLatencyMs: 25 }
+      }
+    },
+    tools: { totalDecisions: { reject: 0 } }
+  }
 }))
 `,
     { mode: 0o755 },
@@ -91,54 +97,38 @@ process.stdout.write(JSON.stringify({
   return path
 }
 
-function failingClaude() {
-  const directory = mkdtempSync(join(tmpdir(), 'ladon-failing-claude-'))
-  const path = join(directory, 'claude')
-  writeFileSync(
-    path,
-    `#!/usr/bin/env node
-process.stdout.write(JSON.stringify({
-  is_error: true,
-  subtype: 'success',
-  terminal_reason: 'api_error',
-  result: 'Not logged in',
-  session_id: 'failed-session'
-}))
-process.exitCode = 1
-`,
-    { mode: 0o755 },
-  )
-  chmodSync(path, 0o755)
-  return path
-}
-
-describe('Claude live eval adapter', () => {
-  test('captures MCP calls and performs one finalization-only retry', async () => {
+describe('Gemini live eval adapter', () => {
+  test('isolates configuration, captures MCP calls, and retries once', async () => {
     const inputFixture = fixture()
-    const previousToken = process.env.GITHUB_TOKEN
-    process.env.GITHUB_TOKEN = 'must-not-reach-claude'
+    const previousGitHubToken = process.env.GITHUB_TOKEN
+    const previousSecretariatKey = process.env.SECRETARIAT_APP_PRIVATE_KEY
+    process.env.GITHUB_TOKEN = 'must-not-reach-gemini'
+    process.env.SECRETARIAT_APP_PRIVATE_KEY = 'must-not-reach-gemini'
     let trace
     try {
-      trace = await runClaudeAdapter(
+      trace = await runGeminiAdapter(
         {
           fixture: inputFixture,
-          provider: 'anthropic',
-          model: 'claude-test-model',
+          provider: 'google',
+          model: 'gemini-test-model',
           trial: 1,
         },
-        { binary: fakeClaude(), timeoutMs: 5000 },
+        { binary: fakeGemini(), timeoutMs: 5000 },
       )
     } finally {
-      if (previousToken === undefined) delete process.env.GITHUB_TOKEN
-      else process.env.GITHUB_TOKEN = previousToken
+      if (previousGitHubToken === undefined) delete process.env.GITHUB_TOKEN
+      else process.env.GITHUB_TOKEN = previousGitHubToken
+      if (previousSecretariatKey === undefined)
+        delete process.env.SECRETARIAT_APP_PRIVATE_KEY
+      else process.env.SECRETARIAT_APP_PRIVATE_KEY = previousSecretariatKey
     }
 
     expect(trace).toMatchObject({
       fixture_id: inputFixture.id,
-      provider: 'anthropic',
-      model: 'claude-test-model',
+      provider: 'google',
+      model: 'gemini-test-model',
       trial: 1,
-      adapter: 'claude-cli-v1-unpinned',
+      adapter: 'gemini-cli-v1-unpinned',
       outcome: 'comment',
       attempts: [
         {
@@ -159,7 +149,12 @@ describe('Claude live eval adapter', () => {
         completion: true,
         required_findings: true,
       },
-      metrics: { retries: 1, false_approvals: 0 },
+      metrics: {
+        retries: 1,
+        false_approvals: 0,
+        infrastructure_failures: 0,
+        turns: 2,
+      },
     })
   })
 
@@ -168,42 +163,15 @@ describe('Claude live eval adapter', () => {
     delete inputFixture.input
 
     await expect(
-      runClaudeAdapter(
+      runGeminiAdapter(
         {
           fixture: inputFixture,
-          provider: 'anthropic',
-          model: 'claude-test-model',
+          provider: 'google',
+          model: 'gemini-test-model',
           trial: 1,
         },
-        { binary: fakeClaude(), timeoutMs: 5000 },
+        { binary: fakeGemini(), timeoutMs: 5000 },
       ),
     ).rejects.toThrow(/immutable fixture input bundle/)
-  })
-
-  test('retains provider failures instead of labeling them successful', async () => {
-    const trace = await runClaudeAdapter(
-      {
-        fixture: fixture(),
-        provider: 'anthropic',
-        model: 'claude-test-model',
-        trial: 1,
-      },
-      { binary: failingClaude(), timeoutMs: 5000 },
-    )
-
-    expect(trace.attempts).toHaveLength(2)
-    expect(trace.attempts[0].result).toMatchObject({
-      subtype: 'api_error',
-      diagnostic: 'Not logged in',
-      exit_code: 1,
-    })
-    expect(gradeReplay(fixture(), trace)).toMatchObject({
-      passed: false,
-      metrics: { infrastructure_failures: 1 },
-      replay: {
-        infrastructure_failure: true,
-        effective_outcome: 'infrastructure-failure',
-      },
-    })
   })
 })

@@ -28,6 +28,9 @@ The committed regression suite verifies that:
   workspace; and
 - the Claude adapter captures ordered MCP calls directly and performs at most
   one finalization-only retry.
+- the Gemini adapter runs with an isolated configuration and policy, normalizes
+  Gemini CLI scheduler metadata at the adapter boundary, and records the
+  original metadata alongside each deterministic tool call.
 
 That historical trace fails its completion gate. The paired
 `pr-6883-fixed-finalization-recovery.json` trace exercises the new one-retry
@@ -158,7 +161,8 @@ baseline with:
 ```sh
 gh workflow run ladon-evals.yml \
   --repo adcontextprotocol/actions \
-  -f models=claude-opus-4-8 \
+  -f providers=anthropic \
+  -f claude_models=claude-opus-4-8 \
   -f repetitions=5 \
   -f concurrency=2
 ```
@@ -167,6 +171,53 @@ The workflow has only `contents: read`, installs a pinned Claude Code version,
 enforces per-trial spend and time limits, always uploads the checkpointed report
 for 30 days, and fails unless every contract trial passes with zero false
 approvals.
+
+## Gemini live adapter
+
+The Gemini adapter exercises the same immutable bundle and MCP persistence
+contract with Gemini CLI. It gives the process a clean home directory, denies
+all tools by default, permits only `read_file`, `record_finding`, and
+`finalize_review`, and passes only Google provider credentials and basic
+process/network environment variables. It never receives GitHub or Secretariat
+credentials.
+
+Gemini CLI adds a boolean `wait_for_previous` scheduling parameter to every
+tool schema. The adapter opts into a narrow Ladon MCP compatibility boundary
+that removes only that boolean before state validation and retains its value as
+`transport_metadata` in the audit trace. Unknown model-supplied fields remain
+errors, and the production reviewer does not enable this normalization.
+
+Run a five-trial Gemini baseline locally with:
+
+```sh
+LADON_EVAL_GEMINI_ADAPTER_ID=gemini-cli-v1+0.57.0 \
+  node ladon/evals/src/cli.mjs run \
+  --fixture ladon/evals/fixtures/tool-contract-unbounded-retry.json \
+  --adapter 'node ladon/evals/src/adapters/gemini.mjs' \
+  --provider google \
+  --models gemini-3.1-pro-preview \
+  --repetitions 5 \
+  --concurrency 2 \
+  --out .context/ladon-gemini-baseline.json
+```
+
+The manual workflow can run Gemini and Claude as independent parallel jobs.
+Select either provider or both:
+
+```sh
+gh workflow run ladon-evals.yml \
+  --repo adcontextprotocol/actions \
+  -f providers=google,anthropic \
+  -f gemini_models=gemini-3.1-pro-preview \
+  -f claude_models=claude-opus-4-8 \
+  -f repetitions=5 \
+  -f concurrency=2
+```
+
+Configure `GEMINI_API_KEY` and/or `ANTHROPIC_API_KEY` as repository or
+environment secrets before selecting that provider. A missing credential fails
+its job before model trials begin. The default dispatch selects only Google so
+an unavailable Anthropic credential cannot be mistaken for reviewer behavior.
 
 Grade one or more saved traces without making model calls:
 
@@ -258,11 +309,11 @@ and twenty per model for a promotion decision. Treat these as hard gates:
 - 100% completion on the infrastructure regression set; and
 - no regression in required-finding recall on the issue-detection set.
 
-Then compare completion rate, recall, unexpected findings, tool errors, retry
-rate, runner-error rate, latency, turns, permission denials, and cost. Missing
-telemetry remains `null` rather than being counted as zero. Keep model IDs and
-adapter versions in the saved artifact so results remain attributable and
-reproducible.
+Then compare completion rate, infrastructure-failure rate, recall, unexpected
+findings, tool errors, retry rate, runner-error rate, latency, turns, permission
+denials, and cost. Missing telemetry remains `null` rather than being counted as
+zero. Keep model IDs and adapter versions in the saved artifact so results
+remain attributable and reproducible.
 
 ## Architecture boundary
 
