@@ -8,10 +8,14 @@ export async function listChangedFiles(params: {
   head: string
 }): Promise<string[]> {
   const { octokit, owner, repo, base, head } = params
+  type CompareCommitsResponse = Awaited<
+    ReturnType<typeof octokit.rest.repos.compareCommits>
+  >
   const files = await octokit.paginate(
     octokit.rest.repos.compareCommits,
     { owner, repo, base, head, per_page: 100 },
-    (response) => response.data.files ?? [],
+    (response) =>
+      (response.data as CompareCommitsResponse['data']).files ?? [],
   )
   return files.map((file) => file.filename)
 }
