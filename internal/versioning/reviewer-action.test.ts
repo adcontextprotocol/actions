@@ -59,7 +59,7 @@ describe('Ladon reviewer manifest', () => {
       "steps.inspect.outputs.needs-finalization == 'true'",
     )
     expect(retrySteps[0]?.with?.claude_args).toContain('--resume')
-    expect(retrySteps[0]?.with?.claude_args).toContain('--max-turns 3')
+    expect(retrySteps[0]?.with?.claude_args).toContain('--max-turns 4')
     expect(retrySteps[0]?.with?.claude_args).toContain(
       'mcp__ladon_findings__finalize_review',
     )

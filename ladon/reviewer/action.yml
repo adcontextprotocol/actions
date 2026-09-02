@@ -253,7 +253,7 @@ runs:
           false so the review remains fail-closed. Stop immediately after the tool call.
         claude_args: |
           --model ${{ inputs.model }}
-          --max-turns 3
+          --max-turns 4
           --resume '${{ steps.claude.outputs.session_id }}'
           --mcp-config '${{ steps.prompt.outputs.mcp-config-path }}'
           --allowedTools "mcp__ladon_findings__finalize_review"
