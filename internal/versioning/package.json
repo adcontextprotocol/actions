@@ -2,6 +2,7 @@
   "name": "version-actions",
   "version": "1.0.1",
   "description": "Automatically version composite and TypeScript actions on merge to main",
+  "type": "module",
   "main": "dist/index.js",
   "private": true,
   "scripts": {
