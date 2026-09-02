@@ -12,7 +12,7 @@ import {
   writeDiffFile,
 } from './diff.js'
 import { evaluateGatedPaths } from './gated-paths.js'
-import { evaluateHighRisk } from './high-risk.js'
+import { boundReasonsForActionInput, evaluateHighRisk } from './high-risk.js'
 import { parseLadonMd } from './ladon-md.js'
 import {
   containsMarker,
@@ -361,7 +361,10 @@ async function main(): Promise<void> {
         } catch {
           // malformed marker — skip re-approval
         }
-        if (priorOutcome === 'approve' && reviewDecision === 'REVIEW_REQUIRED') {
+        if (
+          priorOutcome === 'approve' &&
+          reviewDecision === 'REVIEW_REQUIRED'
+        ) {
           core.setOutput('reapprove', 'true')
           core.setOutput('pr-number', String(prNumber))
           core.setOutput('head-sha', headSha)
@@ -440,9 +443,15 @@ async function main(): Promise<void> {
   core.setOutput('skip-reason', '')
   core.setOutput('ladon-md-body', config.repoContext ?? '')
   core.setOutput('high-risk', highRisk.flag ? 'true' : 'false')
-  core.setOutput('high-risk-reasons', JSON.stringify(highRisk.reasons))
+  core.setOutput(
+    'high-risk-reasons',
+    JSON.stringify(boundReasonsForActionInput(highRisk.reasons)),
+  )
   core.setOutput('gated-paths', gatedPaths.flag ? 'true' : 'false')
-  core.setOutput('gated-paths-reasons', JSON.stringify(gatedPaths.reasons))
+  core.setOutput(
+    'gated-paths-reasons',
+    JSON.stringify(boundReasonsForActionInput(gatedPaths.reasons)),
+  )
   core.setOutput('review-decision', reviewDecision)
   core.setOutput('escalation-reviewers', config.escalationReviewers.join(','))
   core.setOutput('no-auto-approve-teams', config.noAutoApproveTeams.join(','))
