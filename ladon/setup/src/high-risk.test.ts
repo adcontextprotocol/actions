@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { evaluateGatedPaths } from './gated-paths.js'
-import { evaluateHighRisk } from './high-risk.js'
+import { boundReasonsForActionInput, evaluateHighRisk } from './high-risk.js'
 
 describe('evaluateHighRisk', () => {
   test('no globs configured → flag false, reasons empty', () => {
@@ -66,5 +66,23 @@ describe('evaluateHighRisk', () => {
       globs: ['terraform/**/*.tf'],
     }
     expect(evaluateHighRisk(input)).toEqual(evaluateGatedPaths(input))
+  })
+})
+
+describe('boundReasonsForActionInput', () => {
+  test('keeps large changed-file sets below the action input size budget', () => {
+    const reasons = Array.from(
+      { length: 2_000 },
+      (_, index) =>
+        `schemas/cache/3.2.0-beta.11/path-${index}.json (added) matches \`schemas/**\``,
+    )
+
+    const bounded = boundReasonsForActionInput(reasons)
+
+    expect(
+      Buffer.byteLength(JSON.stringify(bounded), 'utf8'),
+    ).toBeLessThanOrEqual(32 * 1024)
+    expect(bounded.at(-1)).toMatch(/additional path matches omitted/)
+    expect(bounded.length).toBeLessThan(reasons.length)
   })
 })

@@ -39569,6 +39569,35 @@ async function writeDiffFile(params) {
 
 ;// CONCATENATED MODULE: ./src/high-risk.ts
 
+const ACTION_INPUT_REASON_BUDGET_BYTES = 32 * 1024;
+/**
+ * Bounds path-match diagnostics before a composite action forwards them as a
+ * single input environment variable. Linux rejects an individual environment
+ * entry above roughly 128 KiB, so large generated-schema PRs otherwise fail
+ * before the downstream action can start.
+ */
+function boundReasonsForActionInput(reasons) {
+    if (Buffer.byteLength(JSON.stringify(reasons), 'utf8') <=
+        ACTION_INPUT_REASON_BUDGET_BYTES) {
+        return reasons;
+    }
+    const bounded = [];
+    for (const reason of reasons) {
+        const omitted = reasons.length - bounded.length - 1;
+        const candidate = [
+            ...bounded,
+            reason,
+            `… ${omitted} additional path matches omitted`,
+        ];
+        if (Buffer.byteLength(JSON.stringify(candidate), 'utf8') >
+            ACTION_INPUT_REASON_BUDGET_BYTES) {
+            break;
+        }
+        bounded.push(reason);
+    }
+    bounded.push(`… ${reasons.length - bounded.length} additional path matches omitted`);
+    return bounded;
+}
 /**
  * Matches changed files against a glob list, producing human-readable
  * reasons ("path (kind) matches `glob`"). Shared core for evaluateHighRisk
@@ -40088,7 +40117,8 @@ async function main() {
                 catch {
                     // malformed marker — skip re-approval
                 }
-                if (priorOutcome === 'approve' && reviewDecision === 'REVIEW_REQUIRED') {
+                if (priorOutcome === 'approve' &&
+                    reviewDecision === 'REVIEW_REQUIRED') {
                     setOutput('reapprove', 'true');
                     setOutput('pr-number', String(prNumber));
                     setOutput('head-sha', headSha);
@@ -40157,9 +40187,9 @@ async function main() {
     setOutput('skip-reason', '');
     setOutput('ladon-md-body', config.repoContext ?? '');
     setOutput('high-risk', highRisk.flag ? 'true' : 'false');
-    setOutput('high-risk-reasons', JSON.stringify(highRisk.reasons));
+    setOutput('high-risk-reasons', JSON.stringify(boundReasonsForActionInput(highRisk.reasons)));
     setOutput('gated-paths', gatedPaths.flag ? 'true' : 'false');
-    setOutput('gated-paths-reasons', JSON.stringify(gatedPaths.reasons));
+    setOutput('gated-paths-reasons', JSON.stringify(boundReasonsForActionInput(gatedPaths.reasons)));
     setOutput('review-decision', reviewDecision);
     setOutput('escalation-reviewers', config.escalationReviewers.join(','));
     setOutput('no-auto-approve-teams', config.noAutoApproveTeams.join(','));
