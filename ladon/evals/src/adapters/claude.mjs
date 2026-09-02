@@ -293,7 +293,7 @@ export async function runClaudeAdapter(
           prompt: finalizationPrompt,
           root,
           mcpConfigPath,
-          maxTurns: 3,
+          maxTurns: 4,
           maxBudgetUsd: retryMaxBudgetUsd,
           resume: sessionId,
           finalizationOnly: true,

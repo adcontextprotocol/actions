@@ -125,7 +125,7 @@ model ID through Claude Code, exposes only `Read`, `record_finding`, and
 `finalize_review`, and reads the ordered calls from Ladon's MCP audit log. It
 does not parse Claude's final response for findings. If the persisted state is
 not finalized and Claude returned a session ID, it resumes that session once
-with the compact finalization-only prompt and a three-turn limit.
+with the compact finalization-only prompt and a four-turn limit.
 
 The adapter uses Claude Code's reproducible `--bare` mode and therefore requires
 `ANTHROPIC_API_KEY`. It removes GitHub and Secretariat credentials from the

@@ -35,6 +35,10 @@ const configPath = args[args.indexOf('--mcp-config') + 1]
 const config = JSON.parse(readFileSync(configPath, 'utf8'))
 const server = config.mcpServers.ladon_findings
 const retry = args.includes('--resume')
+if (retry && args[args.indexOf('--max-turns') + 1] !== '4') {
+  process.stderr.write('Finalization retry must allow four turns')
+  process.exit(11)
+}
 const finding = {
   severity: 'medium',
   title: 'Retry loop is unbounded',
