@@ -191,7 +191,9 @@ runs:
       with:
         anthropic_api_key: ${{ inputs.anthropic-api-key }}
         github_token: ${{ inputs.github-token }}
-        allowed_non_write_users: fgranata
+        # Public-fork reviews run only trusted base code with a constrained tool
+        # surface, so the PR author may invoke Ladon without repository write access.
+        allowed_non_write_users: ${{ github.event.pull_request.user.login }}
         prompt: ${{ steps.prompt.outputs.prompt }}
         # Bash grants are strictly read-only. The reviewer reads via `gh pr view`/`gh pr diff`
         # (read-only subcommands) and the diff files, and posts inline comments through the MCP
@@ -243,7 +245,8 @@ runs:
       with:
         anthropic_api_key: ${{ inputs.anthropic-api-key }}
         github_token: ${{ inputs.github-token }}
-        allowed_non_write_users: fgranata
+        # Resumed reviews need the same public-fork authorization as the first pass.
+        allowed_non_write_users: ${{ github.event.pull_request.user.login }}
         prompt: |
           Finalize the existing Ladon review now. Do not inspect files, run commands,
           add findings, or repeat the review. Call
