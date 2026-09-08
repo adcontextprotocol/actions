@@ -27,7 +27,11 @@ review itself. Before the workflow can run:
 
 3. **(Optional) Branch protection.** If `main` requires an approving review,
    Ladon's App-authored `approve` satisfies it; its `request-changes` blocks the
-   merge until addressed.
+   merge until addressed. Verify that the App can dismiss reviews on the
+   protected branch; when dismissal restrictions are enabled, add the App to the
+   branch rule's or ruleset's allowed dismissal actors. Without that access,
+   Ladon escalates with explicit instructions for an authorized maintainer to
+   dismiss the stale review.
 
 ## Step 1: add the workflow
 

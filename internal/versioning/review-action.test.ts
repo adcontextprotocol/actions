@@ -7,6 +7,7 @@ interface ActionStep {
   'continue-on-error'?: boolean
   if?: string
   name?: string
+  with?: Record<string, string>
 }
 
 describe('Ladon orchestrator manifest', () => {
@@ -26,5 +27,22 @@ describe('Ladon orchestrator manifest', () => {
     expect(reviewer?.['continue-on-error']).not.toBe(true)
     expect(arbiter?.if).not.toContain('always()')
     expect(arbiter?.if).toBe("steps.setup.outputs.should-run == 'true'")
+  })
+
+  test('passes the App login and active change requests through the flow', () => {
+    const reviewer = manifest.runs.steps.find(
+      (step) => step.name === 'Reviewer',
+    )
+    const arbiter = manifest.runs.steps.find((step) => step.name === 'Arbiter')
+
+    expect(arbiter?.with?.['ladon-bot-login']).toBe(
+      '${{ steps.app-token.outputs.app-slug }}[bot]',
+    )
+    expect(reviewer?.with?.['active-change-requests-path']).toBe(
+      '${{ steps.setup.outputs.active-change-requests-path }}',
+    )
+    expect(arbiter?.with?.['active-change-requests-path']).toBe(
+      '${{ steps.setup.outputs.active-change-requests-path }}',
+    )
   })
 })
