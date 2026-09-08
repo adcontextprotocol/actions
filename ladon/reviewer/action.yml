@@ -200,7 +200,10 @@ runs:
     - name: Claude Code review
       id: claude
       continue-on-error: true
-      uses: anthropics/claude-code-action@v1
+      # v1.0.218's native installer can report success without creating the
+      # executable on hosted Linux runners (adcp#7378). Pin the last verified
+      # release, which installs Claude Code 2.1.263, by immutable commit.
+      uses: anthropics/claude-code-action@9c5ddab2e6d17b83ea679153b31f1d5f023cf636 # v1.0.217
       env:
         CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '0'
       with:
@@ -254,7 +257,8 @@ runs:
       id: finalization-retry
       if: ${{ always() && steps.inspect.outputs.needs-finalization == 'true' && steps.claude.outputs.session_id != '' }}
       continue-on-error: true
-      uses: anthropics/claude-code-action@v1
+      # Keep resumed sessions on the same verified executable resolution path.
+      uses: anthropics/claude-code-action@9c5ddab2e6d17b83ea679153b31f1d5f023cf636 # v1.0.217
       env:
         CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '0'
       with:
