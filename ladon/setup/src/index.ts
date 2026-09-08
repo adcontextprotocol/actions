@@ -1,9 +1,10 @@
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as core from '@actions/core'
 import * as github from '@actions/github'
+import { selectActiveChangeRequests } from './active-change-requests.js'
 import {
   computeChangedFiles,
   computePrSurfaceFiles,
@@ -110,6 +111,24 @@ async function fetchPriorDecision(params: {
     if (parsed) return JSON.stringify(parsed)
   }
   return ''
+}
+
+async function fetchActiveChangeRequests(params: {
+  octokit: ReturnType<typeof github.getOctokit>
+  owner: string
+  repo: string
+  prNumber: number
+  ladonBotLogin: string
+}): Promise<string> {
+  const { octokit, owner, repo, prNumber, ladonBotLogin } = params
+  const reviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
+    owner,
+    repo,
+    pull_number: prNumber,
+    per_page: 100,
+  })
+  const active = selectActiveChangeRequests(reviews, ladonBotLogin)
+  return JSON.stringify(active)
 }
 
 async function fetchReviewDecision(params: {
@@ -411,21 +430,34 @@ async function main(): Promise<void> {
         })
       : fullPath
 
-  // Prior decision marker
+  // Prior decision marker and active bot-authored change requests. The latter
+  // are passed back to the reviewer so legacy reviews without structured
+  // finding markers can still be re-evaluated before they are dismissed.
   let priorDecision = ''
+  let activeChangeRequests = '[]'
   try {
-    priorDecision = await fetchPriorDecision({
-      octokit,
-      owner,
-      repo,
-      prNumber,
-      ladonBotLogin,
-    })
+    const priorContext = await Promise.all([
+      fetchPriorDecision({ octokit, owner, repo, prNumber, ladonBotLogin }),
+      fetchActiveChangeRequests({
+        octokit,
+        owner,
+        repo,
+        prNumber,
+        ladonBotLogin,
+      }),
+    ])
+    priorDecision = priorContext[0]
+    activeChangeRequests = priorContext[1]
   } catch (err) {
     core.warning(
-      `Could not fetch prior decision marker: ${err instanceof Error ? err.message : String(err)}`,
+      `Could not fetch prior Ladon review context: ${err instanceof Error ? err.message : String(err)}`,
     )
   }
+  const activeChangeRequestsPath = join(tempDir, 'active-change-requests.json')
+  await writeFile(activeChangeRequestsPath, activeChangeRequests, {
+    encoding: 'utf8',
+    mode: 0o600,
+  })
 
   const reviewDecision = await fetchReviewDecision({
     octokit,
@@ -457,6 +489,7 @@ async function main(): Promise<void> {
   core.setOutput('no-auto-approve-teams', config.noAutoApproveTeams.join(','))
   core.setOutput('protected-branches', config.protectedBranches.join(','))
   core.setOutput('prior-decision', priorDecision)
+  core.setOutput('active-change-requests-path', activeChangeRequestsPath)
   core.setOutput('diff-full-path', fullPath)
   core.setOutput('diff-delta-path', deltaPath)
   core.setOutput('pr-number', String(prNumber))

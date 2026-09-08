@@ -39420,6 +39420,14 @@ function getOctokit(token, options, ...additionalPlugins) {
     return new GitHubWithPlugins(getOctokitOptions(token, options));
 }
 //# sourceMappingURL=github.js.map
+;// CONCATENATED MODULE: ./src/active-change-requests.ts
+function selectActiveChangeRequests(reviews, ladonBotLogin) {
+    return reviews
+        .filter((review) => review.user?.login === ladonBotLogin &&
+        review.state === 'CHANGES_REQUESTED')
+        .map((review) => ({ id: review.id, body: review.body ?? '' }));
+}
+
 // EXTERNAL MODULE: ../../node_modules/picomatch/index.js
 var picomatch = __nccwpck_require__(1026);
 var picomatch_default = /*#__PURE__*/__nccwpck_require__.n(picomatch);
@@ -39835,6 +39843,7 @@ function evaluateShortCircuit(ctx) {
 
 
 
+
 function csv(input) {
     return input
         .split(',')
@@ -39904,6 +39913,17 @@ async function fetchPriorDecision(params) {
             return JSON.stringify(parsed);
     }
     return '';
+}
+async function fetchActiveChangeRequests(params) {
+    const { octokit, owner, repo, prNumber, ladonBotLogin } = params;
+    const reviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
+        owner,
+        repo,
+        pull_number: prNumber,
+        per_page: 100,
+    });
+    const active = selectActiveChangeRequests(reviews, ladonBotLogin);
+    return JSON.stringify(active);
 }
 async function fetchReviewDecision(params) {
     const { octokit, owner, repo, prNumber } = params;
@@ -40160,20 +40180,33 @@ async function main() {
             target: (0,external_node_path_namespaceObject.join)(tempDir, 'diff-delta.patch'),
         })
         : fullPath;
-    // Prior decision marker
+    // Prior decision marker and active bot-authored change requests. The latter
+    // are passed back to the reviewer so legacy reviews without structured
+    // finding markers can still be re-evaluated before they are dismissed.
     let priorDecision = '';
+    let activeChangeRequests = '[]';
     try {
-        priorDecision = await fetchPriorDecision({
-            octokit,
-            owner,
-            repo,
-            prNumber,
-            ladonBotLogin,
-        });
+        const priorContext = await Promise.all([
+            fetchPriorDecision({ octokit, owner, repo, prNumber, ladonBotLogin }),
+            fetchActiveChangeRequests({
+                octokit,
+                owner,
+                repo,
+                prNumber,
+                ladonBotLogin,
+            }),
+        ]);
+        priorDecision = priorContext[0];
+        activeChangeRequests = priorContext[1];
     }
     catch (err) {
-        warning(`Could not fetch prior decision marker: ${err instanceof Error ? err.message : String(err)}`);
+        warning(`Could not fetch prior Ladon review context: ${err instanceof Error ? err.message : String(err)}`);
     }
+    const activeChangeRequestsPath = (0,external_node_path_namespaceObject.join)(tempDir, 'active-change-requests.json');
+    await (0,promises_namespaceObject.writeFile)(activeChangeRequestsPath, activeChangeRequests, {
+        encoding: 'utf8',
+        mode: 0o600,
+    });
     const reviewDecision = await fetchReviewDecision({
         octokit,
         owner,
@@ -40195,6 +40228,7 @@ async function main() {
     setOutput('no-auto-approve-teams', config.noAutoApproveTeams.join(','));
     setOutput('protected-branches', config.protectedBranches.join(','));
     setOutput('prior-decision', priorDecision);
+    setOutput('active-change-requests-path', activeChangeRequestsPath);
     setOutput('diff-full-path', fullPath);
     setOutput('diff-delta-path', deltaPath);
     setOutput('pr-number', String(prNumber));

@@ -43,6 +43,19 @@ describe('Ladon reviewer manifest', () => {
     expect(assemblePrompt?.run).toContain(
       'mcp__ladon_findings__finalize_review',
     )
+    expect(assemblePrompt?.env?.ACTIVE_CHANGE_REQUESTS_PATH).toBe(
+      '${{ inputs.active-change-requests-path }}',
+    )
+    expect(assemblePrompt?.env?.ACTIVE_CHANGE_REQUESTS).toBeUndefined()
+    expect(assemblePrompt?.run).toContain(
+      'ACTIVE_CHANGE_REQUESTS="$(< "${ACTIVE_CHANGE_REQUESTS_PATH}")"',
+    )
+    expect(assemblePrompt?.run).toContain(
+      'Active Ladon change requests that must be resolved',
+    )
+    expect(assemblePrompt?.run).toContain(
+      'Re-evaluate every listed blocking finding against the current full PR',
+    )
     expect(assemblePrompt?.run).not.toContain('structured output')
     expect(claudeReview?.['continue-on-error']).toBe(true)
     expect(claudeReview?.with?.claude_args).toContain('--mcp-config')

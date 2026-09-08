@@ -35212,6 +35212,8 @@ module.exports = /*#__PURE__*/JSON.parse('[[[0,44],"disallowed_STD3_valid"],[[45
 /************************************************************************/
 var __webpack_exports__ = {};
 
+;// CONCATENATED MODULE: external "node:fs/promises"
+const promises_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs/promises");
 ;// CONCATENATED MODULE: external "os"
 const external_os_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("os");
 ;// CONCATENATED MODULE: ../../node_modules/@actions/core/lib/utils.js
@@ -38054,7 +38056,7 @@ function error(message, properties = {}) {
  * @param message warning issue message. Errors will be converted to string via toString()
  * @param properties optional properties to add to the annotation.
  */
-function warning(message, properties = {}) {
+function core_warning(message, properties = {}) {
     command_issueCommand('warning', utils_toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
 /**
@@ -38070,7 +38072,7 @@ function notice(message, properties = {}) {
  * @param message info message
  */
 function info(message) {
-    process.stdout.write(message + os.EOL);
+    process.stdout.write(message + external_os_namespaceObject.EOL);
 }
 /**
  * Begin an output group.
@@ -47444,8 +47446,6 @@ function buildArbiterPrompt(ctx) {
     return parts.join('\n');
 }
 
-;// CONCATENATED MODULE: external "node:fs/promises"
-const promises_namespaceObject = __WEBPACK_EXTERNAL_createRequire(import.meta.url)("node:fs/promises");
 ;// CONCATENATED MODULE: ./src/diff-stats.ts
 
 
@@ -47674,7 +47674,7 @@ async function postReview(params) {
             ? err.status
             : undefined;
         if (event === 'APPROVE' && status === 422) {
-            warning('Approve rejected (likely own PR); falling back to COMMENT');
+            core_warning('Approve rejected (likely own PR); falling back to COMMENT');
             await octokit.rest.pulls.createReview({
                 owner,
                 repo,
@@ -47688,6 +47688,109 @@ async function postReview(params) {
             throw err;
         }
     }
+}
+async function dismissSupersededChangeRequests(params) {
+    const { octokit, owner, repo, prNumber, ladonBotLogin, expectedHeadSha, recheckedReviewIds, } = params;
+    const reviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
+        owner,
+        repo,
+        pull_number: prNumber,
+        per_page: 100,
+    });
+    const rechecked = new Set(recheckedReviewIds);
+    const superseded = reviews.filter((review) => review.state === 'CHANGES_REQUESTED' &&
+        review.user?.login === ladonBotLogin &&
+        Boolean(review.commit_id) &&
+        review.commit_id !== expectedHeadSha &&
+        rechecked.has(review.id));
+    if (superseded.length === 0) {
+        return {
+            dismissed: 0,
+            headChanged: false,
+            warning: null,
+        };
+    }
+    const { data: pullRequest } = await octokit.rest.pulls.get({
+        owner,
+        repo,
+        pull_number: prNumber,
+    });
+    if (pullRequest.head.sha !== expectedHeadSha) {
+        return {
+            dismissed: 0,
+            headChanged: true,
+            warning: null,
+        };
+    }
+    let dismissed = 0;
+    let warning = null;
+    for (const review of superseded) {
+        try {
+            await octokit.rest.pulls.dismissReview({
+                owner,
+                repo,
+                pull_number: prNumber,
+                review_id: review.id,
+                message: 'Superseded by a later Ladon review that rechecked and resolved its blocking findings.',
+            });
+            dismissed += 1;
+        }
+        catch (err) {
+            const status = err instanceof Error && 'status' in err
+                ? err.status
+                : undefined;
+            if (status === 422) {
+                try {
+                    const { data: current } = await octokit.rest.pulls.getReview({
+                        owner,
+                        repo,
+                        pull_number: prNumber,
+                        review_id: review.id,
+                    });
+                    if (current.state === 'DISMISSED')
+                        continue;
+                }
+                catch {
+                    // Fall through to the actionable warning from the original error.
+                }
+            }
+            warning =
+                'Ladon could not dismiss its superseded change-request review automatically. A repository administrator or an actor allowed to dismiss reviews must dismiss it; configure the Ladon GitHub App as an allowed dismissal actor for future runs.';
+            core_warning(`${warning} GitHub API error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }
+    return {
+        dismissed,
+        headChanged: false,
+        warning,
+    };
+}
+async function fetchReviewDecision(params) {
+    try {
+        const result = await params.octokit.graphql(`query($owner: String!, $repo: String!, $number: Int!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $number) {
+            reviewDecision
+          }
+        }
+      }`, { owner: params.owner, repo: params.repo, number: params.prNumber });
+        return result.repository?.pullRequest?.reviewDecision ?? '';
+    }
+    catch (err) {
+        core_warning(`Could not refresh reviewDecision after dismissing a superseded review: ${err instanceof Error ? err.message : String(err)}`);
+        return null;
+    }
+}
+async function hasHumanApproval(params) {
+    const reviews = await params.octokit.paginate(params.octokit.rest.pulls.listReviews, {
+        owner: params.owner,
+        repo: params.repo,
+        pull_number: params.prNumber,
+        per_page: 100,
+    });
+    return reviews.some((review) => review.state === 'APPROVED' &&
+        review.user?.login !== params.ladonBotLogin &&
+        review.user?.type !== 'Bot');
 }
 async function requestReviewers(params) {
     const { octokit, owner, repo, prNumber, reviewers } = params;
@@ -47707,7 +47810,7 @@ async function requestReviewers(params) {
         });
     }
     catch (err) {
-        warning(`Failed to request reviewers (${reviewers.join(', ')}): ${err instanceof Error ? err.message : String(err)}`);
+        core_warning(`Failed to request reviewers (${reviewers.join(', ')}): ${err instanceof Error ? err.message : String(err)}`);
     }
 }
 
@@ -47837,7 +47940,7 @@ async function findNoAutoApproveTeams(params) {
                 : undefined;
             if (status === 404)
                 return null;
-            warning(`Could not verify membership of '${username}' in team '${teamSlug}': ${err instanceof Error ? err.message : String(err)} — holding for human review`);
+            core_warning(`Could not verify membership of '${username}' in team '${teamSlug}': ${err instanceof Error ? err.message : String(err)} — holding for human review`);
             return teamSlug;
         }
     }));
@@ -47857,11 +47960,27 @@ async function findNoAutoApproveTeams(params) {
 
 
 
+
 function csv(input) {
     return input
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
+}
+function changeRequestIds(input) {
+    try {
+        const parsed = JSON.parse(input);
+        if (!Array.isArray(parsed))
+            return [];
+        return parsed
+            .map((item) => typeof item === 'object' && item !== null
+            ? item.id
+            : undefined)
+            .filter((id) => typeof id === 'number' && Number.isFinite(id));
+    }
+    catch {
+        return [];
+    }
 }
 async function main() {
     const anthropicApiKey = getInput('anthropic-api-key', { required: true });
@@ -47886,20 +48005,31 @@ async function main() {
             return [];
         }
     })();
-    const reviewDecision = getInput('review-decision');
+    let reviewDecision = getInput('review-decision');
     const escalationReviewers = csv(getInput('escalation-reviewers'));
     const noAutoApproveTeams = csv(getInput('no-auto-approve-teams'));
     const protectedBranches = csv(getInput('protected-branches'));
     const priorDecisionInput = getInput('prior-decision');
+    const activeChangeRequestsPath = getInput('active-change-requests-path');
     const prNumber = Number(getInput('pr-number', { required: true }));
     const headSha = getInput('head-sha', { required: true });
     const baseSha = getInput('base-sha', { required: true });
     const diffFullPath = getInput('diff-full-path', { required: true });
     const model = getInput('model') || 'claude-sonnet-4-6';
     const decisionLabel = getInput('decision-label') || 'ladon/needs-human-review';
+    const ladonBotLogin = getInput('ladon-bot-login') || 'ladon[bot]';
     const findings = parseFindings(findingsRaw);
     const priorDecision = parsePriorDecisionInput(priorDecisionInput);
     const diffStats = await computeDiffStatsFromFile(diffFullPath);
+    let activeChangeRequestIds = [];
+    if (activeChangeRequestsPath) {
+        try {
+            activeChangeRequestIds = changeRequestIds(await (0,promises_namespaceObject.readFile)(activeChangeRequestsPath, 'utf8'));
+        }
+        catch (err) {
+            core_warning(`Could not read active Ladon change-request context: ${err instanceof Error ? err.message : String(err)}. Superseded reviews will not be dismissed.`);
+        }
+    }
     const ctx = github_context;
     const { owner, repo } = ctx.repo;
     const octokit = getOctokit(githubToken);
@@ -47911,6 +48041,44 @@ async function main() {
         username: authorLogin,
         teamSlugs: noAutoApproveTeams,
     });
+    const hasBlockingFindings = findings.findings.some((finding) => finding.severity === 'critical' || finding.severity === 'high');
+    let reviewCleanupWarning = null;
+    if (reviewDecision === 'CHANGES_REQUESTED' &&
+        !hasBlockingFindings &&
+        activeChangeRequestIds.length > 0) {
+        const cleanup = await dismissSupersededChangeRequests({
+            octokit,
+            owner,
+            repo,
+            prNumber,
+            ladonBotLogin,
+            expectedHeadSha: headSha,
+            recheckedReviewIds: activeChangeRequestIds,
+        });
+        if (cleanup.headChanged) {
+            info(`Skipping stale arbiter run for ${headSha}; the PR head changed before review cleanup.`);
+            return;
+        }
+        if (cleanup.dismissed > 0) {
+            info(`Dismissed ${cleanup.dismissed} superseded Ladon change-request review(s).`);
+        }
+        reviewCleanupWarning = cleanup.warning;
+        reviewDecision =
+            (await fetchReviewDecision({ octokit, owner, repo, prNumber })) ??
+                reviewDecision;
+    }
+    if (gatedPaths &&
+        reviewDecision === 'APPROVED' &&
+        !(await hasHumanApproval({
+            octokit,
+            owner,
+            repo,
+            prNumber,
+            ladonBotLogin,
+        }))) {
+        info('Ignoring aggregate APPROVED state for the gated-path check because no active human approval exists.');
+        reviewDecision = 'REVIEW_REQUIRED';
+    }
     const prompt = buildArbiterPrompt({
         repoSlug: `${owner}/${repo}`,
         prNumber,
@@ -47937,14 +48105,32 @@ async function main() {
         model,
         prompt,
     });
-    const { decision, overrides } = enforceDecisionGuards(llmDecision, {
+    const enforced = enforceDecisionGuards(llmDecision, {
         authorTeamMatches,
         gatedPaths,
         gatedPathsReasons,
         reviewDecision,
     });
-    for (const message of overrides) {
-        warning(`Decision override applied: ${message}`);
+    let decision = enforced.decision;
+    for (const message of enforced.overrides) {
+        core_warning(`Decision override applied: ${message}`);
+    }
+    if (reviewCleanupWarning &&
+        decision.outcome === 'escalate' &&
+        !decision.escalation_reasons.includes(reviewCleanupWarning)) {
+        decision = {
+            ...decision,
+            escalation_reasons: [
+                ...decision.escalation_reasons,
+                reviewCleanupWarning,
+            ],
+        };
+    }
+    else if (reviewCleanupWarning && decision.outcome === 'comment') {
+        decision = {
+            ...decision,
+            summary: `${decision.summary}\n\n${reviewCleanupWarning}`,
+        };
     }
     const body = renderReviewBody({
         decision,

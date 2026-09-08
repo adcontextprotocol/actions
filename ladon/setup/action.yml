@@ -72,6 +72,8 @@ outputs:
     description: 'Resolved protected branches (comma-separated)'
   prior-decision:
     description: 'JSON-serialized prior decision marker (or empty string if none)'
+  active-change-requests-path:
+    description: 'Path to the JSON file containing active Ladon change-request IDs and bodies'
   diff-full-path:
     description: 'Path to the full PR diff file in $RUNNER_TEMP'
   diff-delta-path:
