@@ -9,7 +9,10 @@ const fixture = vi.hoisted(() => {
   const defaults: Record<string, string> = {}
   const outputs: Record<string, string> = {}
   const core = {
-    getInput: vi.fn((name: string) => inputs[name] ?? defaults[name] ?? ''),
+    getInput: vi.fn((name: string, options?: { trimWhitespace?: boolean }) => {
+      const raw = inputs[name] ?? defaults[name] ?? ''
+      return options?.trimWhitespace === false ? raw : raw.trim()
+    }),
     setOutput: vi.fn((name: string, value: string) => {
       outputs[name] = value
     }),
@@ -227,6 +230,9 @@ describe('setup stale-approval integration', () => {
     'off',
     '${{ inputs.auto-approve }}',
     ' false',
+    ' true',
+    'true ',
+    '\ttrue\n',
     'null',
   ])('invalid input %j fails closed', async (input) => {
     fixture.inputs['auto-approve'] = input

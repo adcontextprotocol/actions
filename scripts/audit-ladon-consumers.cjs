@@ -117,6 +117,20 @@ async function mapLimited(items, fn) {
   return result;
 }
 
+function checkedWorkflowFiles(files, repository) {
+  assert.ok(
+    files === null || Array.isArray(files),
+    `Invalid workflows directory: ${repository}`,
+  );
+  // Contents API caps directory responses at 1,000 entries. Search can lag,
+  // so accepting this boundary could hide a newly added sixth consumer.
+  assert.ok(
+    files === null || files.length < 1000,
+    `Possibly truncated workflows directory: ${repository}`,
+  );
+  return (files || []).filter((file) => /\.ya?ml$/.test(file.path));
+}
+
 async function audit(actionsHead) {
   if (actionsHead !== undefined)
     assert.match(
@@ -153,12 +167,8 @@ async function audit(actionsHead) {
         `repos/${repo.full_name}/contents/.github/workflows?ref=${snapshot.sha}`,
         true,
       );
-      assert.ok(
-        files === null || Array.isArray(files),
-        `Invalid workflows directory: ${repo.full_name}`,
-      );
       const workflows = await mapLimited(
-        (files || []).filter((file) => /\.ya?ml$/.test(file.path)),
+        checkedWorkflowFiles(files, repo.full_name),
         async (file) => {
           assert.equal(file.type, "file", `Non-file workflow: ${file.path}`);
           const blob = await api(
@@ -219,7 +229,12 @@ async function audit(actionsHead) {
   return report;
 }
 
-module.exports = { invocations, validateInventory, audit };
+module.exports = {
+  invocations,
+  validateInventory,
+  checkedWorkflowFiles,
+  audit,
+};
 if (require.main === module) {
   const args = process.argv.slice(2);
   if (args.length && (args.length !== 2 || args[0] !== "--actions-head"))

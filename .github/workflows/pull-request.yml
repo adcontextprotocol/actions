@@ -40,4 +40,5 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npx turbo run test --filter="...[${{ env.TURBO_FILTER }}]"
+      # Inventory/manifest changes outside a package must exercise all gates.
+      - run: npm test -- --force

@@ -156,3 +156,18 @@ describe('organization Ladon release inventory is fail closed', () => {
     )
   })
 })
+
+test('the Contents API cap cannot hide a sixth consumer beyond a truncated listing', () => {
+  const { checkedWorkflowFiles } = createRequire(import.meta.url)(
+    '../../scripts/audit-ladon-consumers.cjs',
+  )
+  const files = Array.from({ length: 1000 }, (_, i) => ({
+    path: `.github/workflows/non-yaml-${i}`,
+  }))
+  expect(() => checkedWorkflowFiles(files, 'adcontextprotocol/sixth')).toThrow(
+    'Possibly truncated',
+  )
+  expect(
+    checkedWorkflowFiles(files.slice(0, 999), 'adcontextprotocol/sixth'),
+  ).toEqual([])
+})

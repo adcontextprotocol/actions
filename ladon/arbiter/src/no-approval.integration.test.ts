@@ -8,7 +8,10 @@ const fixture = vi.hoisted(() => {
   const inputs: Record<string, string> = {}
   const defaults: Record<string, string> = {}
   const core = {
-    getInput: vi.fn((name: string) => inputs[name] ?? defaults[name] ?? ''),
+    getInput: vi.fn((name: string, options?: { trimWhitespace?: boolean }) => {
+      const raw = inputs[name] ?? defaults[name] ?? ''
+      return options?.trimWhitespace === false ? raw : raw.trim()
+    }),
     setOutput: vi.fn(),
     setFailed: vi.fn(),
     warning: vi.fn(),
@@ -272,12 +275,19 @@ describe('arbiter API and action result integration', () => {
     'disabled',
     '${{ inputs.auto-approve }}',
     ' false',
+    ' true',
+    'true ',
+    '\ttrue\n',
     'null',
   ])(
     'invalid auto-approve=%j fails before any review API call',
     async (input) => {
       fixture.inputs['auto-approve'] = input
       await run()
+      expect(fixture.core.getInput).toHaveBeenCalledWith('auto-approve', {
+        required: true,
+        trimWhitespace: false,
+      })
       expect(fixture.core.setFailed).toHaveBeenCalled()
       expect(fixture.decide).not.toHaveBeenCalled()
       expect(fixture.octokit.rest.pulls.createReview).not.toHaveBeenCalled()

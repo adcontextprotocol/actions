@@ -39945,7 +39945,10 @@ async function fetchReviewDecision(params) {
 async function main() {
     // The manifest supplies the compatible default. Empty/invalid explicit input
     // must fail before any API write, rather than enabling approvals by fallback.
-    const autoApproveInput = getInput('auto-approve', { required: true });
+    const autoApproveInput = getInput('auto-approve', {
+        required: true,
+        trimWhitespace: false,
+    });
     if (autoApproveInput !== 'true' && autoApproveInput !== 'false') {
         throw new Error('auto-approve must be exactly "true" or "false"');
     }

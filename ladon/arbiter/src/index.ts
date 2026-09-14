@@ -49,7 +49,10 @@ function changeRequestIds(input: string): number[] {
 async function main(): Promise<void> {
   // The manifest supplies the compatible default. Empty/invalid explicit input
   // must fail before any API write, rather than enabling approvals by fallback.
-  const autoApproveInput = core.getInput('auto-approve', { required: true })
+  const autoApproveInput = core.getInput('auto-approve', {
+    required: true,
+    trimWhitespace: false,
+  })
   if (autoApproveInput !== 'true' && autoApproveInput !== 'false') {
     throw new Error('auto-approve must be exactly "true" or "false"')
   }
