@@ -31,7 +31,7 @@ confirm the credential can see the entire intended organization.
 `ladon/consumer-policy.json` is the explicit inventory. The deterministic tests
 reject a sixth consumer, missing expected consumers, added invocation sites,
 wrong/local/floating pins, missing/nonliteral/true inputs, malformed YAML,
-partial search results and incomplete enumeration. No approving consumer is
+partial search results, capped Contents listings and incomplete enumeration. No approving consumer is
 accepted. Explicit true compatibility is tested solely as a supported opt-in;
 adding an approving consumer would require separate human policy acceptance,
 recorded inventory and a reviewed change to this enforcement contract.
@@ -39,9 +39,9 @@ recorded inventory and a reviewed change to this enforcement contract.
 ## Reviewed immutable implementation
 
 - Orchestrator and approval-boundary regression suite:
-  `3d180c9b365c201d4cd4cfd93d0c2a7e8790da70`.
+  `d6e930d4a2a01ee0d476fd8347eaf258f85d889c`.
 - Nested setup/arbiter manifests, source and executable bundles:
-  `02db55f54f39f93c683c2031887b735aea0ecba2`.
+  `d2422f6b24f6c0b7535c1155e9175d388be44174`.
 - Nested reviewer: `a64a17ba369122d6b3401f614a31df7b8607f043`.
 
 All five proposed workflows pin that orchestrator and set `auto-approve: 'false'`
@@ -55,7 +55,7 @@ existing modification gate. Do not revive it as a cleanup-based approval guard.
 
 Unlike superseded head `85284cbc297875aa04b2d5afcf7ae833b29f329c`, this artifact
 **defaults false in all three manifests**. Direct helper omissions also deny
-approval/shortcuts. Raw empty/malformed/nonliteral inputs fail before reviews;
+approval/shortcuts. Raw empty/malformed/nonliteral inputs (including whitespace) fail before reviews;
 composite validation precedes App token minting. Tests cover runner-injected
 omission defaults and missing raw input, with zero APPROVE/reapprove API calls.
 The new default is a behavior change: legacy approval requires explicit true.
