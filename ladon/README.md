@@ -27,8 +27,8 @@ bot identity (the App whose credentials the consuming workflow supplies). See
 ## Human-only approval
 
 Set `auto-approve: 'false'` on the orchestrator to post findings without ever
-submitting an approving review, including stale reapproval. The default remains
-`'true'` for compatibility. Blocking findings and escalation still fail in the
+submitting an approving review, including stale reapproval. All three action manifests default to `'false'`;
+only explicit `'true'` enables the compatibility approval path. Blocking findings and escalation still fail in the
 new mode. See [the adoption plan](./HUMAN-APPROVAL-ADOPTION.md) for consumer pins,
 auto-merge races, and the separate required human-review/ruleset audit.
 
@@ -47,4 +47,4 @@ and supply the App credentials and Anthropic key as inputs. See
 [`INSTALL.md`](./INSTALL.md) for the consumer install guide (prerequisites, a
 copy-paste workflow, and the `pull_request_target` security posture); the repo
 root `.github/workflows/ai-review.yml` is the self-review variant that uses the
-local `./ladon/review` path.
+same immutable reviewed action pin.

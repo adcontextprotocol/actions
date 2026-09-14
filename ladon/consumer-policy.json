@@ -1,0 +1,10 @@
+{
+  "review": "3d180c9b365c201d4cd4cfd93d0c2a7e8790da70",
+  "repositories": [
+    "adcontextprotocol/actions",
+    "adcontextprotocol/adcp",
+    "adcontextprotocol/adcp-client",
+    "adcontextprotocol/adcp-go",
+    "adcontextprotocol/adcp-client-python"
+  ]
+}

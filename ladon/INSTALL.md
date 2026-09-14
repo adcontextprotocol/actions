@@ -25,9 +25,9 @@ review itself. Before the workflow can run:
    | `SECRETARIAT_APP_PRIVATE_KEY` | The App's private key (PEM)          |
    | `ANTHROPIC_API_KEY`           | Anthropic API key Ladon reviews with |
 
-3. **Choose the approval policy explicitly.** Existing consumers default to
-   `auto-approve: 'true'`, which allows App approvals to satisfy GitHub's review
-   count. For human-only repositories set `auto-approve: 'false'` as shown
+3. **Choose the approval policy explicitly.** Revised review/setup/arbiter
+   actions default to `auto-approve: 'false'`. Explicit true enables App approval
+   and is forbidden in this human-only rollout. Set `auto-approve: 'false'` as shown
    below: clean reviews become COMMENT, blocking findings still request changes
    and fail, and escalations remain failed pending human resolution. This input
    does not itself enforce who may satisfy branch protection. Follow the
@@ -43,8 +43,7 @@ new input. See the adoption order before using the floating tag.
 ## Step 1: add the workflow
 
 Create `.github/workflows/ai-review.yml`. This is the canonical consumer
-workflow: it pins the floating major tag `@ladon/review/v1` (auto-tracks the
-latest v1), and it carries the security posture Ladon depends on. **Copy it
+workflow: it pins the reviewed immutable orchestrator and carries the security posture Ladon depends on. **Copy it
 verbatim**: do not reconstruct it (see [Security posture](#security-posture)).
 
 ```yaml
@@ -140,7 +139,7 @@ jobs:
 
       - name: Run Ladon
         if: steps.workflow-mod.outputs.modified != 'true'
-        uses: adcontextprotocol/actions/ladon/review@ladon/review/v1
+        uses: adcontextprotocol/actions/ladon/review@3d180c9b365c201d4cd4cfd93d0c2a7e8790da70
         with:
           auto-approve: "false"
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
