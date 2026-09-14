@@ -97,7 +97,7 @@ runs:
     # Update these pins explicitly when promoting a reviewed sub-action change.
     - name: Setup
       id: setup
-      uses: adcontextprotocol/actions/ladon/setup@dc93cb8ec91206c7a8097638a7e559bf58a08aee
+      uses: adcontextprotocol/actions/ladon/setup@292a0da93b25c3e9ecfcf5a05763a4206c472c3a
       with:
         github-token: ${{ steps.app-token.outputs.token }}
         ladon-bot-login: ${{ steps.app-token.outputs.app-slug }}[bot]
@@ -162,7 +162,7 @@ runs:
     - name: Arbiter
       if: steps.setup.outputs.should-run == 'true'
       id: arbiter
-      uses: adcontextprotocol/actions/ladon/arbiter@dc93cb8ec91206c7a8097638a7e559bf58a08aee
+      uses: adcontextprotocol/actions/ladon/arbiter@292a0da93b25c3e9ecfcf5a05763a4206c472c3a
       with:
         anthropic-api-key: ${{ inputs.anthropic-api-key }}
         github-token: ${{ steps.app-token.outputs.token }}

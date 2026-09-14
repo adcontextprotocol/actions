@@ -50,8 +50,9 @@ base commit above. No tag was moved by this work.
    gated-path and high-risk checks. The compatible mode retains that legacy
    behavior; it must not be used as a human-only gate. Disabled mode suppresses
    renewal in setup, the orchestrator condition, and the shell itself. It
-   re-reviews the full surface on no-delta pushes so a prior failed/escalated
-   result cannot silently become a successful skip.
+   reviews the full PR surface on every run so a prior failed/escalated result
+   cannot silently become a successful skip or lose an unresolved medium finding
+   outside an incremental delta. This costs more review work than legacy mode.
 3. The reviewer has inline-comment and finding-persistence tools, read-only gh
    commands, and one finalization-only retry. It has no permitted top-level
    review/gh write tool. Incomplete review state fails before the arbiter runs.
@@ -75,7 +76,9 @@ In disabled mode:
 | Existing configured author/event skip           | No approving review                          | Existing skip behavior; **not evidence of review** |
 
 Known blocking policy rows are enforced in code in disabled mode even if the
-model returns approve/comment. An escalation remains failed until its reason
+model returns approve/comment. Renames count as modifications, and bounded
+path diagnostics retain change-kind facts even when individual reasons exceed
+the input budget. An escalation remains failed until its reason
 is resolved; a human approval alone does not turn a destructive-change
 escalation green. Maintainers must explicitly handle an intentional high-risk
 change under their audited human exception procedure, not add
