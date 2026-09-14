@@ -47492,6 +47492,50 @@ const GATED_PATH_OVERRIDE_PREFIX = '> **[Override: forced from `approve` to `esc
 function enforceDecisionGuards(decision, ctx) {
     const overrides = [];
     let result = decision;
+    // In findings-only mode the action result is a policy check, so enforce the
+    // blocking rows of arbiter-decision.md before suppressing approval. An LLM
+    // "approve" or "comment" must not turn a known blocker into a green check.
+    if (ctx.autoApprove === false) {
+        const findings = ctx.findings ?? [];
+        const blockers = findings.filter((f) => f.severity === 'critical' || f.severity === 'high');
+        const mediums = findings.filter((f) => f.severity === 'medium');
+        const reasons = [];
+        if (ctx.highRisk &&
+            ctx.highRiskReasons?.some((r) => r.includes('(deleted)'))) {
+            reasons.push('Deletion in a high-risk path requires human review.');
+        }
+        if (mediums.some((f) => ['data-loss', 'schema', 'infra'].includes(f.category))) {
+            reasons.push('Medium finding in a sensitive category requires human review.');
+        }
+        if (ctx.highRisk &&
+            ctx.highRiskReasons?.some((r) => r.includes('(modified)')) &&
+            mediums.length > 0) {
+            reasons.push('Medium finding with a modified high-risk path requires human review.');
+        }
+        if (ctx.priorDecision?.outcome === 'escalate' &&
+            findings.some((f) => f.severity !== 'low')) {
+            reasons.push('Prior escalation still has actionable findings.');
+        }
+        if (ctx.gatedPaths && ctx.reviewDecision !== 'APPROVED') {
+            reasons.push('Gated paths require human/CODEOWNERS approval.');
+        }
+        if (blockers.length > 0) {
+            result = {
+                ...result,
+                outcome: 'request-changes',
+                blocking_findings: blockers.map((f) => `${f.file}${f.line ? `:${f.line}` : ''} — ${f.title}`),
+            };
+            overrides.push('Critical/high findings require changes regardless of the model verdict.');
+        }
+        else if (reasons.length > 0 && result.outcome !== 'request-changes') {
+            result = {
+                ...result,
+                outcome: 'escalate',
+                escalation_reasons: [...result.escalation_reasons, ...reasons],
+            };
+            overrides.push(...reasons);
+        }
+    }
     // Gated-paths mirrors the decision table's row 2 (see arbiter-decision.md):
     // the LLM is expected to apply that row directly and choose `escalate`
     // itself, exactly like the author-team HARD RULE below. This block is the
@@ -47538,6 +47582,15 @@ function enforceDecisionGuards(decision, ctx) {
             ...result,
             outcome: 'comment',
             summary: `${NO_AUTO_APPROVE_OVERRIDE_PREFIX}\n>\n> ${reason}\n\n${result.summary}`,
+        };
+    }
+    if (ctx.autoApprove === false && result.outcome === 'approve') {
+        const reason = 'Automatic approval is disabled (auto-approve=false). Ladon findings do not satisfy the required human review.';
+        overrides.push(reason);
+        result = {
+            ...result,
+            outcome: 'comment',
+            summary: `${reason}\n\n${result.summary}`,
         };
     }
     return { decision: result, overrides };
@@ -47658,7 +47711,12 @@ async function addLabel(params) {
     });
 }
 async function postReview(params) {
-    const { octokit, owner, repo, prNumber, headSha, event, body } = params;
+    const { octokit, owner, repo, prNumber, headSha, body } = params;
+    // Last boundary before the API: never approve and then dismiss. Auto-merge
+    // can act on the first write, before a cleanup or a failing check completes.
+    const event = params.autoApprove === false && params.event === 'APPROVE'
+        ? 'COMMENT'
+        : params.event;
     try {
         await octokit.rest.pulls.createReview({
             owner,
@@ -47983,6 +48041,13 @@ function changeRequestIds(input) {
     }
 }
 async function main() {
+    // The manifest supplies the compatible default. Empty/invalid explicit input
+    // must fail before any API write, rather than enabling approvals by fallback.
+    const autoApproveInput = getInput('auto-approve', { required: true });
+    if (autoApproveInput !== 'true' && autoApproveInput !== 'false') {
+        throw new Error('auto-approve must be exactly "true" or "false"');
+    }
+    const autoApprove = autoApproveInput === 'true';
     const anthropicApiKey = getInput('anthropic-api-key', { required: true });
     const githubToken = getInput('github-token', { required: true });
     const findingsRaw = getInput('findings-json', { required: true });
@@ -48056,6 +48121,8 @@ async function main() {
             recheckedReviewIds: activeChangeRequestIds,
         });
         if (cleanup.headChanged) {
+            if (!autoApprove)
+                setFailed('PR head changed before review cleanup; rerun Ladon for the current head.');
             info(`Skipping stale arbiter run for ${headSha}; the PR head changed before review cleanup.`);
             return;
         }
@@ -48107,6 +48174,11 @@ async function main() {
     });
     const enforced = enforceDecisionGuards(llmDecision, {
         authorTeamMatches,
+        autoApprove,
+        findings: findings.findings,
+        highRisk,
+        highRiskReasons,
+        priorDecision,
         gatedPaths,
         gatedPathsReasons,
         reviewDecision,
@@ -48146,6 +48218,7 @@ async function main() {
         prNumber,
         headSha,
         event: mapOutcomeToReviewEvent(decision.outcome),
+        autoApprove,
         body,
     });
     if (decision.outcome === 'escalate') {
@@ -48162,6 +48235,12 @@ async function main() {
         }
     }
     setOutput('outcome', decision.outcome);
+    if (!autoApprove &&
+        (decision.outcome === 'request-changes' ||
+            decision.outcome === 'escalate' ||
+            reviewCleanupWarning)) {
+        setFailed(`Ladon requires resolution or human review: ${decision.outcome}${reviewCleanupWarning ? `; ${reviewCleanupWarning}` : ''}`);
+    }
 }
 main().catch((err) => {
     setFailed(err instanceof Error ? err.message : String(err));

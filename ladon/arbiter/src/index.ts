@@ -47,6 +47,14 @@ function changeRequestIds(input: string): number[] {
 }
 
 async function main(): Promise<void> {
+  // The manifest supplies the compatible default. Empty/invalid explicit input
+  // must fail before any API write, rather than enabling approvals by fallback.
+  const autoApproveInput = core.getInput('auto-approve', { required: true })
+  if (autoApproveInput !== 'true' && autoApproveInput !== 'false') {
+    throw new Error('auto-approve must be exactly "true" or "false"')
+  }
+  const autoApprove = autoApproveInput === 'true'
+
   const anthropicApiKey = core.getInput('anthropic-api-key', { required: true })
   const githubToken = core.getInput('github-token', { required: true })
   const findingsRaw = core.getInput('findings-json', { required: true })
@@ -133,6 +141,10 @@ async function main(): Promise<void> {
       recheckedReviewIds: activeChangeRequestIds,
     })
     if (cleanup.headChanged) {
+      if (!autoApprove)
+        core.setFailed(
+          'PR head changed before review cleanup; rerun Ladon for the current head.',
+        )
       core.info(
         `Skipping stale arbiter run for ${headSha}; the PR head changed before review cleanup.`,
       )
@@ -195,6 +207,11 @@ async function main(): Promise<void> {
 
   const enforced = enforceDecisionGuards(llmDecision, {
     authorTeamMatches,
+    autoApprove,
+    findings: findings.findings,
+    highRisk,
+    highRiskReasons,
+    priorDecision,
     gatedPaths,
     gatedPathsReasons,
     reviewDecision,
@@ -237,6 +254,7 @@ async function main(): Promise<void> {
     prNumber,
     headSha,
     event: mapOutcomeToReviewEvent(decision.outcome),
+    autoApprove,
     body,
   })
 
@@ -255,6 +273,16 @@ async function main(): Promise<void> {
   }
 
   core.setOutput('outcome', decision.outcome)
+  if (
+    !autoApprove &&
+    (decision.outcome === 'request-changes' ||
+      decision.outcome === 'escalate' ||
+      reviewCleanupWarning)
+  ) {
+    core.setFailed(
+      `Ladon requires resolution or human review: ${decision.outcome}${reviewCleanupWarning ? `; ${reviewCleanupWarning}` : ''}`,
+    )
+  }
 }
 
 main().catch((err: unknown) => {

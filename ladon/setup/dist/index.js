@@ -39816,7 +39816,7 @@ function evaluateShortCircuit(ctx) {
         return { shouldRun: false, skipReason: 'merge-conflicts' };
     if (ctx.releaseStackBranches.includes(ctx.headRef))
         return { shouldRun: false, skipReason: 'release-stack-branch' };
-    if (ctx.eventAction === 'synchronize') {
+    if (ctx.eventAction === 'synchronize' && ctx.autoApprove !== false) {
         if (ctx.isPureRebase)
             return { shouldRun: false, skipReason: 'pure-rebase' };
         if (ctx.deltaFiles.length === 0 &&
@@ -39943,6 +39943,13 @@ async function fetchReviewDecision(params) {
     }
 }
 async function main() {
+    // The manifest supplies the compatible default. Empty/invalid explicit input
+    // must fail before any API write, rather than enabling approvals by fallback.
+    const autoApproveInput = getInput('auto-approve', { required: true });
+    if (autoApproveInput !== 'true' && autoApproveInput !== 'false') {
+        throw new Error('auto-approve must be exactly "true" or "false"');
+    }
+    const autoApprove = autoApproveInput === 'true';
     const githubToken = getInput('github-token', { required: true });
     const inputs = {
         highRiskPaths: csv(getInput('high-risk-paths')),
@@ -40078,6 +40085,7 @@ async function main() {
         trivialGlobs: config.trivialPaths,
     });
     const decision = evaluateShortCircuit({
+        autoApprove,
         prState,
         isDraft,
         hasForceReviewLabel,
@@ -40113,8 +40121,9 @@ async function main() {
                 marker: 'ladon/merge-conflict-noted',
             });
         }
-        else if (decision.skipReason === 'empty-delta' ||
-            decision.skipReason === 'pure-rebase') {
+        else if (autoApprove &&
+            (decision.skipReason === 'empty-delta' ||
+                decision.skipReason === 'pure-rebase')) {
             // When a no-delta push dismisses a prior approval via GitHub's stale-review
             // policy, the PR stays blocked forever: nothing new to review, but the
             // approval is gone. Detect this and signal the orchestrator to re-submit it.
@@ -40151,6 +40160,13 @@ async function main() {
         setOutput('should-run', 'false');
         setOutput('skip-reason', decision.skipReason ?? '');
         return;
+    }
+    // With approvals disabled, a no-delta push must recheck the full surface:
+    // a previous failure/escalation cannot become a green check just by rebasing
+    // or changing a trivial file. Never reuse a dismissed approval as a verdict.
+    if (!autoApprove &&
+        (isPureRebase || deltaFilesAfterTrivialFilter.length === 0)) {
+        deltaFiles = surfacePaths;
     }
     // High-risk / gated-path evaluation runs on the PR surface. Change kinds
     // come from the pulls.listFiles response already fetched above — no extra

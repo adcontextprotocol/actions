@@ -163,6 +163,14 @@ async function fetchReviewDecision(params: {
 }
 
 async function main(): Promise<void> {
+  // The manifest supplies the compatible default. Empty/invalid explicit input
+  // must fail before any API write, rather than enabling approvals by fallback.
+  const autoApproveInput = core.getInput('auto-approve', { required: true })
+  if (autoApproveInput !== 'true' && autoApproveInput !== 'false') {
+    throw new Error('auto-approve must be exactly "true" or "false"')
+  }
+  const autoApprove = autoApproveInput === 'true'
+
   const githubToken = core.getInput('github-token', { required: true })
   const inputs: ActionInputs = {
     highRiskPaths: csv(core.getInput('high-risk-paths')),
@@ -321,6 +329,7 @@ async function main(): Promise<void> {
   })
 
   const decision = evaluateShortCircuit({
+    autoApprove,
     prState,
     isDraft,
     hasForceReviewLabel,
@@ -356,8 +365,9 @@ async function main(): Promise<void> {
         marker: 'ladon/merge-conflict-noted',
       })
     } else if (
-      decision.skipReason === 'empty-delta' ||
-      decision.skipReason === 'pure-rebase'
+      autoApprove &&
+      (decision.skipReason === 'empty-delta' ||
+        decision.skipReason === 'pure-rebase')
     ) {
       // When a no-delta push dismisses a prior approval via GitHub's stale-review
       // policy, the PR stays blocked forever: nothing new to review, but the
@@ -397,6 +407,16 @@ async function main(): Promise<void> {
     core.setOutput('should-run', 'false')
     core.setOutput('skip-reason', decision.skipReason ?? '')
     return
+  }
+
+  // With approvals disabled, a no-delta push must recheck the full surface:
+  // a previous failure/escalation cannot become a green check just by rebasing
+  // or changing a trivial file. Never reuse a dismissed approval as a verdict.
+  if (
+    !autoApprove &&
+    (isPureRebase || deltaFilesAfterTrivialFilter.length === 0)
+  ) {
+    deltaFiles = surfacePaths
   }
 
   // High-risk / gated-path evaluation runs on the PR surface. Change kinds

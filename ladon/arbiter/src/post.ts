@@ -69,9 +69,16 @@ export async function postReview(params: {
   prNumber: number
   headSha: string
   event: ReviewEvent
+  autoApprove?: boolean
   body: string
 }): Promise<void> {
-  const { octokit, owner, repo, prNumber, headSha, event, body } = params
+  const { octokit, owner, repo, prNumber, headSha, body } = params
+  // Last boundary before the API: never approve and then dismiss. Auto-merge
+  // can act on the first write, before a cleanup or a failing check completes.
+  const event =
+    params.autoApprove === false && params.event === 'APPROVE'
+      ? 'COMMENT'
+      : params.event
   try {
     await octokit.rest.pulls.createReview({
       owner,

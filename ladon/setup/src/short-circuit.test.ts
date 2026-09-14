@@ -163,3 +163,32 @@ describe('evaluateShortCircuit', () => {
     ).toEqual({ shouldRun: false, skipReason: 'pr-closed' })
   })
 })
+
+describe('no-approval mode', () => {
+  test.each([
+    { isPureRebase: true },
+    { deltaFiles: [], deltaFilesAfterTrivialFilter: [] },
+    { deltaFiles: ['README.md'], deltaFilesAfterTrivialFilter: [] },
+  ])('re-evaluates policy after a no-delta push: %j', (delta) => {
+    expect(
+      evaluateShortCircuit(
+        ctx({
+          ...delta,
+          eventAction: 'synchronize',
+          autoApprove: false,
+        }),
+      ),
+    ).toEqual({ shouldRun: true, skipReason: null })
+  })
+
+  test('still skips a configured bot author without approving it', () => {
+    expect(
+      evaluateShortCircuit(
+        ctx({
+          authorLogin: 'dependabot[bot]',
+          autoApprove: false,
+        }),
+      ),
+    ).toEqual({ shouldRun: false, skipReason: 'bot-author' })
+  })
+})

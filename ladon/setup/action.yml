@@ -3,6 +3,10 @@ description: 'Parses LADON.md, computes diff/delta, evaluates short-circuit cond
 author: 'Ad Context Protocol'
 
 inputs:
+  auto-approve:
+    description: 'Whether Ladon may submit APPROVE (true or false). Set false for findings without approving reviews; blocking findings and escalations fail the action.'
+    required: false
+    default: 'true'
   github-token:
     description: 'GitHub App installation token'
     required: true
@@ -48,6 +52,8 @@ inputs:
     default: 'ladon/force-review'
 
 outputs:
+  reapprove:
+    description: 'true only when auto-approve is enabled and a prior approval can be renewed after an empty delta or pure rebase'
   should-run:
     description: 'true if downstream reviewer + arbiter should run'
   skip-reason:
