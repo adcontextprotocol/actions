@@ -65,6 +65,7 @@ describe('postReview', () => {
       prNumber: 1,
       headSha: 'h',
       event: 'APPROVE',
+      autoApprove: true,
       body: 'x',
     })
     expect(createReview).toHaveBeenCalledTimes(2)
@@ -308,4 +309,52 @@ describe('hasHumanApproval', () => {
       }),
     ).resolves.toBe(true)
   })
+})
+
+describe('no-approval posting boundary', () => {
+  test.each(['APPROVE', 'REQUEST_CHANGES', 'COMMENT'] as const)(
+    '%s never sends APPROVE when autoApprove is false',
+    async (event) => {
+      // Record each call as it happens: an APPROVE followed by cleanup is unsafe.
+      const events: string[] = []
+      const createReview = vi.fn(async (request) => {
+        events.push(request.event)
+        expect(request.event).not.toBe('APPROVE')
+        return { data: { id: 1 } }
+      })
+      await postReview({
+        octokit: { rest: { pulls: { createReview } } } as never,
+        owner: 'o',
+        repo: 'r',
+        prNumber: 1,
+        headSha: 'exact-head',
+        event,
+        body: 'Ladon findings',
+        autoApprove: false,
+      })
+      expect(events).toEqual([event === 'APPROVE' ? 'COMMENT' : event])
+      expect(createReview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          commit_id: 'exact-head',
+          body: 'Ladon findings',
+        }),
+      )
+    },
+  )
+})
+
+test('an omitted final API capability never sends APPROVE, even before cleanup', async () => {
+  const createReview = vi.fn().mockResolvedValue({ data: { id: 1 } })
+  await postReview({
+    octokit: { rest: { pulls: { createReview } } } as never,
+    owner: 'o',
+    repo: 'r',
+    prNumber: 1,
+    headSha: 'h',
+    event: 'APPROVE',
+    body: 'findings',
+  })
+  expect(createReview).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ event: 'COMMENT' }),
+  )
 })

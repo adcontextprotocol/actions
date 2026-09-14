@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'vitest'
-import { enforceDecisionGuards } from './enforce.js'
+import { enforceDecisionGuards as runDecisionGuards } from './enforce.js'
+
+// Existing compatibility-policy cases opt in explicitly at the test boundary.
+const enforceDecisionGuards: typeof runDecisionGuards = (decision, context) =>
+  runDecisionGuards(decision, { autoApprove: true, ...context })
 
 const baseDecision = {
   outcome: 'approve' as const,
@@ -245,4 +249,96 @@ describe('enforceDecisionGuards', () => {
     expect(result.overrides[0]).toContain('deploy.yml')
     expect(result.overrides[0]).not.toContain('example-org/security')
   })
+})
+
+describe('no-approval decision policy', () => {
+  test('converts a clean approve into an attributable comment', () => {
+    const result = enforceDecisionGuards(baseDecision, {
+      authorTeamMatches: [],
+      autoApprove: false,
+    })
+    expect(result.decision.outcome).toBe('comment')
+    expect(result.decision.summary).toContain('auto-approve=false')
+    expect(result.decision.summary).toContain('Clean review.')
+  })
+
+  test.each(['request-changes', 'escalate'] as const)(
+    'preserves %s',
+    (outcome) => {
+      expect(
+        enforceDecisionGuards(
+          { ...baseDecision, outcome },
+          {
+            authorTeamMatches: [],
+            autoApprove: false,
+          },
+        ).decision.outcome,
+      ).toBe(outcome)
+    },
+  )
+})
+
+test.each([
+  {
+    highRisk: true,
+    highRiskReasons: ['src/a.ts (modified)'],
+    expected: 'escalate',
+  },
+  {
+    highRisk: true,
+    highRiskReasons: ['src/a.ts (renamed)'],
+    expected: 'escalate',
+  },
+  {
+    highRisk: true,
+    highRiskReasons: ['src/a.ts (added)'],
+    expected: 'comment',
+  },
+  {
+    priorDecision: {
+      head: 'old',
+      outcome: 'escalate' as const,
+      high_risk: true,
+      reasons: [],
+    },
+    expected: 'escalate',
+  },
+])(
+  'no-approval mode preserves medium policy: %j',
+  ({ expected, ...context }) => {
+    const result = enforceDecisionGuards(baseDecision, {
+      ...context,
+      autoApprove: false,
+      authorTeamMatches: [],
+      findings: [
+        {
+          severity: 'medium',
+          category: 'operability',
+          file: 'src/a.ts',
+          title: 'Missing timeout',
+          rationale: 'A request can hang',
+          posted_inline: true,
+        },
+      ],
+    })
+    expect(result.decision.outcome).toBe(expected)
+  },
+)
+
+test('high-risk flag alone does not force escalation in no-approval mode', () => {
+  expect(
+    enforceDecisionGuards(baseDecision, {
+      autoApprove: false,
+      authorTeamMatches: [],
+      highRisk: true,
+      highRiskReasons: ['src/a.ts (modified)'],
+      findings: [],
+    }).decision.outcome,
+  ).toBe('comment')
+})
+
+test('an omitted guard capability defaults to an attributable non-approving decision', () => {
+  const result = runDecisionGuards(baseDecision, { authorTeamMatches: [] })
+  expect(result.decision.outcome).toBe('comment')
+  expect(result.decision.summary).toContain('auto-approve=false')
 })

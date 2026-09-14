@@ -86,3 +86,30 @@ describe('boundReasonsForActionInput', () => {
     expect(bounded.length).toBeLessThan(reasons.length)
   })
 })
+
+test('retains policy-relevant change kinds beyond the diagnostic budget', () => {
+  const reasons = [
+    ...Array.from(
+      { length: 1000 },
+      (_, i) => `src/new-${i}.ts (added) matches src/**`,
+    ),
+    'src/security.ts (deleted) matches src/**',
+    'src/auth.ts (modified) matches src/**',
+  ]
+  const bounded = boundReasonsForActionInput(reasons)
+  expect(
+    Buffer.byteLength(JSON.stringify(bounded), 'utf8'),
+  ).toBeLessThanOrEqual(32 * 1024)
+  expect(bounded.some((reason) => reason.includes('(deleted)'))).toBe(true)
+  expect(bounded.some((reason) => reason.includes('(modified)'))).toBe(true)
+})
+
+test('retains change kinds even if one reason alone exceeds the budget', () => {
+  const bounded = boundReasonsForActionInput([
+    `${'x'.repeat(40_000)} (deleted) matches src/**`,
+  ])
+  expect(
+    Buffer.byteLength(JSON.stringify(bounded), 'utf8'),
+  ).toBeLessThanOrEqual(32 * 1024)
+  expect(bounded.some((reason) => reason.includes('(deleted)'))).toBe(true)
+})

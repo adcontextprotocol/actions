@@ -163,6 +163,17 @@ async function fetchReviewDecision(params: {
 }
 
 async function main(): Promise<void> {
+  // The manifest supplies the compatible default. Empty/invalid explicit input
+  // must fail before any API write, rather than enabling approvals by fallback.
+  const autoApproveInput = core.getInput('auto-approve', {
+    required: true,
+    trimWhitespace: false,
+  })
+  if (autoApproveInput !== 'true' && autoApproveInput !== 'false') {
+    throw new Error('auto-approve must be exactly "true" or "false"')
+  }
+  const autoApprove = autoApproveInput === 'true'
+
   const githubToken = core.getInput('github-token', { required: true })
   const inputs: ActionInputs = {
     highRiskPaths: csv(core.getInput('high-risk-paths')),
@@ -256,7 +267,10 @@ async function main(): Promise<void> {
 
   const ladonBotLogin = core.getInput('ladon-bot-login') || 'ladon[bot]'
 
-  if (eventAction === 'synchronize') {
+  // Findings-only mode uses the full PR on every pass. Otherwise a nonempty
+  // delta could omit an unresolved medium finding that made the prior check
+  // fail (the reviewer only rechecks prior mediums within its delta).
+  if (eventAction === 'synchronize' && autoApprove) {
     try {
       const reviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
         owner,
@@ -321,6 +335,7 @@ async function main(): Promise<void> {
   })
 
   const decision = evaluateShortCircuit({
+    autoApprove,
     prState,
     isDraft,
     hasForceReviewLabel,
@@ -356,8 +371,9 @@ async function main(): Promise<void> {
         marker: 'ladon/merge-conflict-noted',
       })
     } else if (
-      decision.skipReason === 'empty-delta' ||
-      decision.skipReason === 'pure-rebase'
+      autoApprove &&
+      (decision.skipReason === 'empty-delta' ||
+        decision.skipReason === 'pure-rebase')
     ) {
       // When a no-delta push dismisses a prior approval via GitHub's stale-review
       // policy, the PR stays blocked forever: nothing new to review, but the

@@ -8,6 +8,8 @@ function ctx(
   overrides: Partial<ShortCircuitContext> = {},
 ): ShortCircuitContext {
   return {
+    // Legacy shortcut tests explicitly opt in; omission must review fully.
+    autoApprove: true,
     prState: 'open',
     isDraft: false,
     hasForceReviewLabel: false,
@@ -162,4 +164,45 @@ describe('evaluateShortCircuit', () => {
       ),
     ).toEqual({ shouldRun: false, skipReason: 'pr-closed' })
   })
+})
+
+describe('no-approval mode', () => {
+  test.each([
+    { isPureRebase: true },
+    { deltaFiles: [], deltaFilesAfterTrivialFilter: [] },
+    { deltaFiles: ['README.md'], deltaFilesAfterTrivialFilter: [] },
+  ])('re-evaluates policy after a no-delta push: %j', (delta) => {
+    expect(
+      evaluateShortCircuit(
+        ctx({
+          ...delta,
+          eventAction: 'synchronize',
+          autoApprove: false,
+        }),
+      ),
+    ).toEqual({ shouldRun: true, skipReason: null })
+  })
+
+  test('still skips a configured bot author without approving it', () => {
+    expect(
+      evaluateShortCircuit(
+        ctx({
+          authorLogin: 'dependabot[bot]',
+          autoApprove: false,
+        }),
+      ),
+    ).toEqual({ shouldRun: false, skipReason: 'bot-author' })
+  })
+})
+
+test('omitting the shortcut capability cannot skip a stale dismissed approval', () => {
+  expect(
+    evaluateShortCircuit(
+      ctx({
+        autoApprove: undefined,
+        eventAction: 'synchronize',
+        isPureRebase: true,
+      }),
+    ),
+  ).toEqual({ shouldRun: true, skipReason: null })
 })

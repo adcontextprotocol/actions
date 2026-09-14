@@ -3,6 +3,10 @@ description: 'Decides approve/request-changes/comment/escalate from the reviewer
 author: 'Ad Context Protocol'
 
 inputs:
+  auto-approve:
+    description: 'Whether Ladon may submit APPROVE (true or false). Set false for findings without approving reviews; blocking findings and escalations fail the action.'
+    required: false
+    default: 'false'
   anthropic-api-key:
     description: 'Anthropic API key'
     required: true
