@@ -47508,7 +47508,7 @@ function enforceDecisionGuards(decision, ctx) {
             reasons.push('Medium finding in a sensitive category requires human review.');
         }
         if (ctx.highRisk &&
-            ctx.highRiskReasons?.some((r) => r.includes('(modified)')) &&
+            ctx.highRiskReasons?.some((r) => r.includes('(modified)') || r.includes('(renamed)')) &&
             mediums.length > 0) {
             reasons.push('Medium finding with a modified high-risk path requires human review.');
         }

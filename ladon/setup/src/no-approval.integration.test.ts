@@ -172,6 +172,24 @@ describe('setup stale-approval integration', () => {
     },
   )
 
+  test('an unrelated nontrivial push still reviews the full PR in disabled mode', async () => {
+    fixture.octokit.paginate.mockResolvedValueOnce([
+      { filename: 'src/auth.ts', status: 'modified' },
+      { filename: 'src/other.ts', status: 'modified' },
+    ])
+    fixture.octokit.rest.repos.compareCommitsWithBasehead.mockResolvedValue({
+      data: { files: [{ filename: 'src/other.ts' }] },
+    })
+    await run()
+    expect(fixture.outputs['should-run']).toBe('true')
+    expect(
+      fixture.octokit.rest.repos.compareCommitsWithBasehead,
+    ).not.toHaveBeenCalled()
+    expect(fixture.outputs['diff-delta-path']).toBe(
+      fixture.outputs['diff-full-path'],
+    )
+  })
+
   test('normal opened review runs with approval disabled', async () => {
     fixture.context.payload.action = 'opened'
     await run()

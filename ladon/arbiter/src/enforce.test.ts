@@ -282,6 +282,11 @@ test.each([
   },
   {
     highRisk: true,
+    highRiskReasons: ['src/a.ts (renamed)'],
+    expected: 'escalate',
+  },
+  {
+    highRisk: true,
     highRiskReasons: ['src/a.ts (added)'],
     expected: 'comment',
   },

@@ -56,7 +56,9 @@ export function enforceDecisionGuards(
     }
     if (
       ctx.highRisk &&
-      ctx.highRiskReasons?.some((r) => r.includes('(modified)')) &&
+      ctx.highRiskReasons?.some(
+        (r) => r.includes('(modified)') || r.includes('(renamed)'),
+      ) &&
       mediums.length > 0
     ) {
       reasons.push(

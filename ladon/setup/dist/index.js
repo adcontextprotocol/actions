@@ -39589,21 +39589,21 @@ function boundReasonsForActionInput(reasons) {
         ACTION_INPUT_REASON_BUDGET_BYTES) {
         return reasons;
     }
+    // These diagnostics also carry facts used by arbiter escalation policy.
+    // Preserve every change kind even when its individual reason is omitted.
+    const kinds = ['added', 'modified', 'deleted', 'renamed'].filter((kind) => reasons.some((reason) => reason.includes(`(${kind})`)));
+    const omittedMessage = (count) => `… ${count} additional path matches omitted; change kinds in the full match set: ${kinds.map((kind) => `(${kind})`).join(', ')}`;
     const bounded = [];
     for (const reason of reasons) {
         const omitted = reasons.length - bounded.length - 1;
-        const candidate = [
-            ...bounded,
-            reason,
-            `… ${omitted} additional path matches omitted`,
-        ];
+        const candidate = [...bounded, reason, omittedMessage(omitted)];
         if (Buffer.byteLength(JSON.stringify(candidate), 'utf8') >
             ACTION_INPUT_REASON_BUDGET_BYTES) {
             break;
         }
         bounded.push(reason);
     }
-    bounded.push(`… ${reasons.length - bounded.length} additional path matches omitted`);
+    bounded.push(omittedMessage(reasons.length - bounded.length));
     return bounded;
 }
 /**
@@ -40027,7 +40027,10 @@ async function main() {
     let deltaFiles = surfacePaths;
     let isPureRebase = false;
     const ladonBotLogin = getInput('ladon-bot-login') || 'ladon[bot]';
-    if (eventAction === 'synchronize') {
+    // Findings-only mode uses the full PR on every pass. Otherwise a nonempty
+    // delta could omit an unresolved medium finding that made the prior check
+    // fail (the reviewer only rechecks prior mediums within its delta).
+    if (eventAction === 'synchronize' && autoApprove) {
         try {
             const reviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
                 owner,
@@ -40160,13 +40163,6 @@ async function main() {
         setOutput('should-run', 'false');
         setOutput('skip-reason', decision.skipReason ?? '');
         return;
-    }
-    // With approvals disabled, a no-delta push must recheck the full surface:
-    // a previous failure/escalation cannot become a green check just by rebasing
-    // or changing a trivial file. Never reuse a dismissed approval as a verdict.
-    if (!autoApprove &&
-        (isPureRebase || deltaFilesAfterTrivialFilter.length === 0)) {
-        deltaFiles = surfacePaths;
     }
     // High-risk / gated-path evaluation runs on the PR surface. Change kinds
     // come from the pulls.listFiles response already fetched above — no extra

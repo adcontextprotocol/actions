@@ -264,7 +264,10 @@ async function main(): Promise<void> {
 
   const ladonBotLogin = core.getInput('ladon-bot-login') || 'ladon[bot]'
 
-  if (eventAction === 'synchronize') {
+  // Findings-only mode uses the full PR on every pass. Otherwise a nonempty
+  // delta could omit an unresolved medium finding that made the prior check
+  // fail (the reviewer only rechecks prior mediums within its delta).
+  if (eventAction === 'synchronize' && autoApprove) {
     try {
       const reviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
         owner,
@@ -407,16 +410,6 @@ async function main(): Promise<void> {
     core.setOutput('should-run', 'false')
     core.setOutput('skip-reason', decision.skipReason ?? '')
     return
-  }
-
-  // With approvals disabled, a no-delta push must recheck the full surface:
-  // a previous failure/escalation cannot become a green check just by rebasing
-  // or changing a trivial file. Never reuse a dismissed approval as a verdict.
-  if (
-    !autoApprove &&
-    (isPureRebase || deltaFilesAfterTrivialFilter.length === 0)
-  ) {
-    deltaFiles = surfacePaths
   }
 
   // High-risk / gated-path evaluation runs on the PR surface. Change kinds
