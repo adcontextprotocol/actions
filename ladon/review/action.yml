@@ -3,6 +3,10 @@ description: 'Runs the Ladon review flow: setup → reviewer → arbiter.'
 author: 'Ad Context Protocol'
 
 inputs:
+  auto-approve:
+    description: 'Whether Ladon may submit APPROVE (true or false). Set false for findings without approving reviews; blocking findings and escalations fail the action.'
+    required: false
+    default: 'true'
   anthropic-api-key:
     description: 'Anthropic API key'
     required: true
@@ -66,8 +70,17 @@ runs:
   steps:
     - name: Validate inputs
       shell: bash
+      env:
+        CLIENT_ID: ${{ inputs.client-id }}
+        APP_ID: ${{ inputs.app-id }}
+        AUTO_APPROVE: ${{ inputs.auto-approve }}
       run: |
-        if [[ -z "${{ inputs.client-id }}" && -z "${{ inputs.app-id }}" ]]; then
+        set -euo pipefail
+        if [[ "$AUTO_APPROVE" != 'true' && "$AUTO_APPROVE" != 'false' ]]; then
+          echo '::error::auto-approve must be exactly "true" or "false"'
+          exit 1
+        fi
+        if [[ -z "$CLIENT_ID" && -z "$APP_ID" ]]; then
           echo "::error::Either 'client-id' or 'app-id' must be provided"
           exit 1
         fi
@@ -79,12 +92,16 @@ runs:
         client-id: ${{ inputs.client-id || inputs.app-id }}
         private-key: ${{ inputs.app-private-key }}
 
+    # Pin the audited action tree: an older floating setup/arbiter can ignore
+    # auto-approve and write an approval before any capability check could run.
+    # Update these pins explicitly when promoting a reviewed sub-action change.
     - name: Setup
       id: setup
-      uses: adcontextprotocol/actions/ladon/setup@ladon/setup/v1
+      uses: adcontextprotocol/actions/ladon/setup@dc93cb8ec91206c7a8097638a7e559bf58a08aee
       with:
         github-token: ${{ steps.app-token.outputs.token }}
         ladon-bot-login: ${{ steps.app-token.outputs.app-slug }}[bot]
+        auto-approve: ${{ inputs.auto-approve }}
         protected-branches: ${{ inputs.protected-branches }}
         no-auto-approve-teams: ${{ inputs.no-auto-approve-teams }}
         escalation-reviewers: ${{ inputs.escalation-reviewers }}
@@ -103,21 +120,28 @@ runs:
         echo "should-run=false skip-reason=${{ steps.setup.outputs.skip-reason }}" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Re-approve dismissed stale approval
-      if: steps.setup.outputs.reapprove == 'true'
+      if: inputs.auto-approve == 'true' && steps.setup.outputs.reapprove == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        AUTO_APPROVE: ${{ inputs.auto-approve }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ steps.setup.outputs.pr-number }}
+        HEAD_SHA: ${{ steps.setup.outputs.head-sha }}
       run: |
-        gh api repos/${{ github.repository }}/pulls/${{ steps.setup.outputs.pr-number }}/reviews \
+        set -euo pipefail
+        # Defense in depth if this step is reused or its condition changes.
+        [[ "$AUTO_APPROVE" == 'true' ]] || exit 1
+        gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
           --method POST \
           -f body='Re-approval: no reviewable delta since the prior approval; re-submitting after stale-review dismissal.' \
           -f event='APPROVE' \
-          -f commit_id='${{ steps.setup.outputs.head-sha }}'
+          -f commit_id="$HEAD_SHA"
 
     - name: Reviewer
       if: steps.setup.outputs.should-run == 'true'
       id: reviewer
-      uses: adcontextprotocol/actions/ladon/reviewer@ladon/reviewer/v1
+      uses: adcontextprotocol/actions/ladon/reviewer@a64a17ba369122d6b3401f614a31df7b8607f043
       with:
         anthropic-api-key: ${{ inputs.anthropic-api-key }}
         github-token: ${{ steps.app-token.outputs.token }}
@@ -138,11 +162,12 @@ runs:
     - name: Arbiter
       if: steps.setup.outputs.should-run == 'true'
       id: arbiter
-      uses: adcontextprotocol/actions/ladon/arbiter@ladon/arbiter/v1
+      uses: adcontextprotocol/actions/ladon/arbiter@dc93cb8ec91206c7a8097638a7e559bf58a08aee
       with:
         anthropic-api-key: ${{ inputs.anthropic-api-key }}
         github-token: ${{ steps.app-token.outputs.token }}
         ladon-bot-login: ${{ steps.app-token.outputs.app-slug }}[bot]
+        auto-approve: ${{ inputs.auto-approve }}
         findings-json: ${{ steps.reviewer.outputs.findings-json }}
         ladon-md-body: ${{ steps.setup.outputs.ladon-md-body }}
         high-risk: ${{ steps.setup.outputs.high-risk }}

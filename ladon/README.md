@@ -24,6 +24,14 @@ AdCP Working Group. Ladon does the reviewing; it posts under the AAO Secretariat
 bot identity (the App whose credentials the consuming workflow supplies). See
 `reviewer/rules/voice.md`.
 
+## Human-only approval
+
+Set `auto-approve: 'false'` on the orchestrator to post findings without ever
+submitting an approving review, including stale reapproval. The default remains
+`'true'` for compatibility. Blocking findings and escalation still fail in the
+new mode. See [the adoption plan](./HUMAN-APPROVAL-ADOPTION.md) for consumer pins,
+auto-merge races, and the separate required human-review/ruleset audit.
+
 ## Per-repo configuration
 
 Repo-specific tuning lives in a `LADON.md` file at each consuming repo's root

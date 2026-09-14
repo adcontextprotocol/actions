@@ -15,7 +15,7 @@ Ladon posts reviews under the **AAO Secretariat** GitHub App, using Claude for t
 review itself. Before the workflow can run:
 
 1. **Install the AAO Secretariat App on the repo.** Reviews post under the App
-   identity so they count toward a "1 review required" branch-protection rule.
+   identity so automated findings are attributable to Ladon.
    Ask an org admin if it isn't already installed.
 2. **Add three repository secrets** (Settings → Secrets and variables → Actions):
 
@@ -25,13 +25,20 @@ review itself. Before the workflow can run:
    | `SECRETARIAT_APP_PRIVATE_KEY` | The App's private key (PEM)          |
    | `ANTHROPIC_API_KEY`           | Anthropic API key Ladon reviews with |
 
-3. **(Optional) Branch protection.** If `main` requires an approving review,
-   Ladon's App-authored `approve` satisfies it; its `request-changes` blocks the
-   merge until addressed. Verify that the App can dismiss reviews on the
-   protected branch; when dismissal restrictions are enabled, add the App to the
-   branch rule's or ruleset's allowed dismissal actors. Without that access,
-   Ladon escalates with explicit instructions for an authorized maintainer to
-   dismiss the stale review.
+3. **Choose the approval policy explicitly.** Existing consumers default to
+   `auto-approve: 'true'`, which allows App approvals to satisfy GitHub's review
+   count. For human-only repositories set `auto-approve: 'false'` as shown
+   below: clean reviews become COMMENT, blocking findings still request changes
+   and fail, and escalations remain failed pending human resolution. This input
+   does not itself enforce who may satisfy branch protection. Follow the
+   [coordinated adoption and ruleset audit](./HUMAN-APPROVAL-ADOPTION.md), including
+   existing approvals and old in-flight runs, before relying on the human gate.
+   If the App cannot dismiss its superseded change requests, an authorized
+   maintainer must resolve them; do not ignore a failed check.
+
+The template below opts into findings without approving reviews. Use a reviewed
+immutable action SHA during migration; an older `ladon/review/v1` can ignore the
+new input. See the adoption order before using the floating tag.
 
 ## Step 1: add the workflow
 
@@ -135,6 +142,7 @@ jobs:
         if: steps.workflow-mod.outputs.modified != 'true'
         uses: adcontextprotocol/actions/ladon/review@ladon/review/v1
         with:
+          auto-approve: "false"
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           app-id: ${{ secrets.SECRETARIAT_APP_ID }}
           app-private-key: ${{ secrets.SECRETARIAT_APP_PRIVATE_KEY }}
