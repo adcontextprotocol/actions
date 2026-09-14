@@ -47495,7 +47495,7 @@ function enforceDecisionGuards(decision, ctx) {
     // In findings-only mode the action result is a policy check, so enforce the
     // blocking rows of arbiter-decision.md before suppressing approval. An LLM
     // "approve" or "comment" must not turn a known blocker into a green check.
-    if (ctx.autoApprove === false) {
+    if (ctx.autoApprove !== true) {
         const findings = ctx.findings ?? [];
         const blockers = findings.filter((f) => f.severity === 'critical' || f.severity === 'high');
         const mediums = findings.filter((f) => f.severity === 'medium');
@@ -47584,7 +47584,7 @@ function enforceDecisionGuards(decision, ctx) {
             summary: `${NO_AUTO_APPROVE_OVERRIDE_PREFIX}\n>\n> ${reason}\n\n${result.summary}`,
         };
     }
-    if (ctx.autoApprove === false && result.outcome === 'approve') {
+    if (ctx.autoApprove !== true && result.outcome === 'approve') {
         const reason = 'Automatic approval is disabled (auto-approve=false). Ladon findings do not satisfy the required human review.';
         overrides.push(reason);
         result = {
@@ -47714,7 +47714,7 @@ async function postReview(params) {
     const { octokit, owner, repo, prNumber, headSha, body } = params;
     // Last boundary before the API: never approve and then dismiss. Auto-merge
     // can act on the first write, before a cleanup or a failing check completes.
-    const event = params.autoApprove === false && params.event === 'APPROVE'
+    const event = params.autoApprove !== true && params.event === 'APPROVE'
         ? 'COMMENT'
         : params.event;
     try {

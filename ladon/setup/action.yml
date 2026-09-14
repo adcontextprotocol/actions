@@ -6,7 +6,7 @@ inputs:
   auto-approve:
     description: 'Whether Ladon may submit APPROVE (true or false). Set false for findings without approving reviews; blocking findings and escalations fail the action.'
     required: false
-    default: 'true'
+    default: 'false'
   github-token:
     description: 'GitHub App installation token'
     required: true

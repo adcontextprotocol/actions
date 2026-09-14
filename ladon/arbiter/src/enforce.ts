@@ -34,7 +34,7 @@ export function enforceDecisionGuards(
   // In findings-only mode the action result is a policy check, so enforce the
   // blocking rows of arbiter-decision.md before suppressing approval. An LLM
   // "approve" or "comment" must not turn a known blocker into a green check.
-  if (ctx.autoApprove === false) {
+  if (ctx.autoApprove !== true) {
     const findings = ctx.findings ?? []
     const blockers = findings.filter(
       (f) => f.severity === 'critical' || f.severity === 'high',
@@ -148,7 +148,7 @@ export function enforceDecisionGuards(
     }
   }
 
-  if (ctx.autoApprove === false && result.outcome === 'approve') {
+  if (ctx.autoApprove !== true && result.outcome === 'approve') {
     const reason =
       'Automatic approval is disabled (auto-approve=false). Ladon findings do not satisfy the required human review.'
     overrides.push(reason)

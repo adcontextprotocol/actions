@@ -8,6 +8,8 @@ function ctx(
   overrides: Partial<ShortCircuitContext> = {},
 ): ShortCircuitContext {
   return {
+    // Legacy shortcut tests explicitly opt in; omission must review fully.
+    autoApprove: true,
     prState: 'open',
     isDraft: false,
     hasForceReviewLabel: false,
@@ -191,4 +193,16 @@ describe('no-approval mode', () => {
       ),
     ).toEqual({ shouldRun: false, skipReason: 'bot-author' })
   })
+})
+
+test('omitting the shortcut capability cannot skip a stale dismissed approval', () => {
+  expect(
+    evaluateShortCircuit(
+      ctx({
+        autoApprove: undefined,
+        eventAction: 'synchronize',
+        isPureRebase: true,
+      }),
+    ),
+  ).toEqual({ shouldRun: true, skipReason: null })
 })

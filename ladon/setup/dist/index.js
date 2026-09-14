@@ -39816,7 +39816,7 @@ function evaluateShortCircuit(ctx) {
         return { shouldRun: false, skipReason: 'merge-conflicts' };
     if (ctx.releaseStackBranches.includes(ctx.headRef))
         return { shouldRun: false, skipReason: 'release-stack-branch' };
-    if (ctx.eventAction === 'synchronize' && ctx.autoApprove !== false) {
+    if (ctx.eventAction === 'synchronize' && ctx.autoApprove === true) {
         if (ctx.isPureRebase)
             return { shouldRun: false, skipReason: 'pure-rebase' };
         if (ctx.deltaFiles.length === 0 &&

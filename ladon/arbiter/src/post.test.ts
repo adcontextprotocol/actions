@@ -65,6 +65,7 @@ describe('postReview', () => {
       prNumber: 1,
       headSha: 'h',
       event: 'APPROVE',
+      autoApprove: true,
       body: 'x',
     })
     expect(createReview).toHaveBeenCalledTimes(2)
@@ -339,5 +340,21 @@ describe('no-approval posting boundary', () => {
         }),
       )
     },
+  )
+})
+
+test('an omitted final API capability never sends APPROVE, even before cleanup', async () => {
+  const createReview = vi.fn().mockResolvedValue({ data: { id: 1 } })
+  await postReview({
+    octokit: { rest: { pulls: { createReview } } } as never,
+    owner: 'o',
+    repo: 'r',
+    prNumber: 1,
+    headSha: 'h',
+    event: 'APPROVE',
+    body: 'findings',
+  })
+  expect(createReview).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ event: 'COMMENT' }),
   )
 })

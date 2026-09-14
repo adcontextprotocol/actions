@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'vitest'
-import { enforceDecisionGuards } from './enforce.js'
+import { enforceDecisionGuards as runDecisionGuards } from './enforce.js'
+
+// Existing compatibility-policy cases opt in explicitly at the test boundary.
+const enforceDecisionGuards: typeof runDecisionGuards = (decision, context) =>
+  runDecisionGuards(decision, { autoApprove: true, ...context })
 
 const baseDecision = {
   outcome: 'approve' as const,
@@ -331,4 +335,10 @@ test('high-risk flag alone does not force escalation in no-approval mode', () =>
       findings: [],
     }).decision.outcome,
   ).toBe('comment')
+})
+
+test('an omitted guard capability defaults to an attributable non-approving decision', () => {
+  const result = runDecisionGuards(baseDecision, { authorTeamMatches: [] })
+  expect(result.decision.outcome).toBe('comment')
+  expect(result.decision.summary).toContain('auto-approve=false')
 })

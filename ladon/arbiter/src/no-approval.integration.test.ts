@@ -1,11 +1,14 @@
+import { readFileSync } from 'node:fs'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { parse } from 'yaml'
 import type { ArbiterDecision } from './anthropic.js'
 import type { Finding } from './findings.js'
 
 const fixture = vi.hoisted(() => {
   const inputs: Record<string, string> = {}
+  const defaults: Record<string, string> = {}
   const core = {
-    getInput: vi.fn((name: string) => inputs[name] ?? ''),
+    getInput: vi.fn((name: string) => inputs[name] ?? defaults[name] ?? ''),
     setOutput: vi.fn(),
     setFailed: vi.fn(),
     warning: vi.fn(),
@@ -34,7 +37,7 @@ const fixture = vi.hoisted(() => {
       pull_request: { user: { login: 'author' }, base: { ref: 'main' } },
     },
   }
-  return { inputs, core, octokit, context, decide: vi.fn() }
+  return { defaults, inputs, core, octokit, context, decide: vi.fn() }
 })
 
 vi.mock('@actions/core', () => fixture.core)
@@ -84,6 +87,10 @@ async function run() {
 beforeEach(() => {
   vi.resetModules()
   vi.clearAllMocks()
+  // Model the runner's manifest-default injection for an omitted input.
+  fixture.defaults['auto-approve'] = parse(
+    readFileSync(new URL('../action.yml', import.meta.url), 'utf8'),
+  ).inputs['auto-approve'].default
   for (const key of Object.keys(fixture.inputs)) delete fixture.inputs[key]
   Object.assign(fixture.inputs, {
     'auto-approve': 'false',
@@ -258,7 +265,15 @@ describe('arbiter API and action result integration', () => {
     )
   })
 
-  test.each(['', 'False', '0', 'disabled', 'unresolved-expression'])(
+  test.each([
+    '',
+    'False',
+    '0',
+    'disabled',
+    '${{ inputs.auto-approve }}',
+    ' false',
+    'null',
+  ])(
     'invalid auto-approve=%j fails before any review API call',
     async (input) => {
       fixture.inputs['auto-approve'] = input
@@ -280,4 +295,24 @@ describe('arbiter API and action result integration', () => {
     )
     expect(fixture.core.setFailed).toHaveBeenCalledWith('rejected')
   })
+})
+
+test('omitted input resolves the manifest default to false with zero approvals', async () => {
+  delete fixture.inputs['auto-approve']
+  expect(fixture.defaults['auto-approve']).toBe('false')
+  await run()
+  expect(
+    fixture.octokit.rest.pulls.createReview,
+  ).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ event: 'COMMENT' }),
+  )
+  expect(fixture.core.setFailed).not.toHaveBeenCalled()
+})
+
+test('missing raw input without runner defaults fails before any approval or reapproval', async () => {
+  delete fixture.inputs['auto-approve']
+  delete fixture.defaults['auto-approve']
+  await run()
+  expect(fixture.core.setFailed).toHaveBeenCalled()
+  expect(fixture.octokit.rest.pulls.createReview).not.toHaveBeenCalled()
 })

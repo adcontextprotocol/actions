@@ -1,13 +1,15 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeEach, describe, expect, test, vi } from 'vitest'
+import { parse } from 'yaml'
 
 const fixture = vi.hoisted(() => {
   const inputs: Record<string, string> = {}
+  const defaults: Record<string, string> = {}
   const outputs: Record<string, string> = {}
   const core = {
-    getInput: vi.fn((name: string) => inputs[name] ?? ''),
+    getInput: vi.fn((name: string) => inputs[name] ?? defaults[name] ?? ''),
     setOutput: vi.fn((name: string, value: string) => {
       outputs[name] = value
     }),
@@ -48,7 +50,7 @@ const fixture = vi.hoisted(() => {
       },
     },
   }
-  return { inputs, outputs, core, octokit, context }
+  return { defaults, inputs, outputs, core, octokit, context }
 })
 vi.mock('@actions/core', () => fixture.core)
 vi.mock('@actions/github', () => ({
@@ -79,6 +81,10 @@ async function run() {
 beforeEach(() => {
   vi.resetModules()
   vi.clearAllMocks()
+  // Model the runner's manifest-default injection for an omitted input.
+  fixture.defaults['auto-approve'] = parse(
+    readFileSync(new URL('../action.yml', import.meta.url), 'utf8'),
+  ).inputs['auto-approve'].default
   vi.stubEnv('GITHUB_WORKSPACE', directory)
   for (const object of [fixture.inputs, fixture.outputs]) {
     for (const key of Object.keys(object)) delete object[key]
@@ -215,14 +221,35 @@ describe('setup stale-approval integration', () => {
     expect(fixture.outputs.reapprove).toBeUndefined()
   })
 
-  test.each(['', 'FALSE', 'off'])(
-    'invalid input %j fails closed',
-    async (input) => {
-      fixture.inputs['auto-approve'] = input
-      await run()
-      expect(fixture.core.setFailed).toHaveBeenCalled()
-      expect(fixture.outputs.reapprove).toBeUndefined()
-      expect(fixture.octokit.rest.pulls.createReview).not.toHaveBeenCalled()
-    },
-  )
+  test.each([
+    '',
+    'FALSE',
+    'off',
+    '${{ inputs.auto-approve }}',
+    ' false',
+    'null',
+  ])('invalid input %j fails closed', async (input) => {
+    fixture.inputs['auto-approve'] = input
+    await run()
+    expect(fixture.core.setFailed).toHaveBeenCalled()
+    expect(fixture.outputs.reapprove).toBeUndefined()
+    expect(fixture.octokit.rest.pulls.createReview).not.toHaveBeenCalled()
+  })
+})
+
+test('omitted input resolves the manifest default to false with zero approvals', async () => {
+  delete fixture.inputs['auto-approve']
+  expect(fixture.defaults['auto-approve']).toBe('false')
+  await run()
+  expect(fixture.outputs['should-run']).toBe('true')
+  expect(fixture.outputs.reapprove).toBeUndefined()
+  expect(fixture.octokit.rest.pulls.createReview).not.toHaveBeenCalled()
+})
+
+test('missing raw input without runner defaults fails before any approval or reapproval', async () => {
+  delete fixture.inputs['auto-approve']
+  delete fixture.defaults['auto-approve']
+  await run()
+  expect(fixture.core.setFailed).toHaveBeenCalled()
+  expect(fixture.octokit.rest.pulls.createReview).not.toHaveBeenCalled()
 })

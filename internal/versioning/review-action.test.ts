@@ -68,8 +68,8 @@ describe('orchestrator approval boundary', () => {
     (s: ActionStep) => s.name === 'Validate inputs',
   )
 
-  test('defaults compatibly and forwards the control to both actions', () => {
-    expect(manifest.inputs['auto-approve'].default).toBe('true')
+  test('defaults to no approval and forwards the control to both actions', () => {
+    expect(manifest.inputs['auto-approve'].default).toBe('false')
     for (const step of [setup, arbiter]) {
       expect(step.with['auto-approve']).toBe(`${'$'}{{ inputs.auto-approve }}`)
     }
@@ -78,7 +78,14 @@ describe('orchestrator approval boundary', () => {
     )
   })
 
-  test.each(['false', '', 'False', 'off'])(
+  test.each([
+    'false',
+    '',
+    'False',
+    'off',
+    '${{ inputs.auto-approve }}',
+    ' true',
+  ])(
     'auto-approve=%j prevents every stale reapproval API call even if the step runs',
     (value) => {
       const result = spawnSync(
@@ -120,22 +127,27 @@ describe('orchestrator approval boundary', () => {
     expect(result.stdout).toContain('commit_id=exact-head')
   })
 
-  test.each(['false', 'true', '', 'False', 'disabled'])(
-    'validates auto-approve=%j before minting a write token',
-    (value) => {
-      const result = spawnSync('bash', ['-c', validate.run], {
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          AUTO_APPROVE: value,
-          CLIENT_ID: '123',
-          APP_ID: '',
-        },
-      })
-      expect(result.status).toBe(['false', 'true'].includes(value) ? 0 : 1)
-      expect(manifest.runs.steps[0]).toBe(validate)
-    },
-  )
+  test.each([
+    'false',
+    'true',
+    '',
+    'False',
+    'disabled',
+    '${{ inputs.auto-approve }}',
+    ' true',
+  ])('validates auto-approve=%j before minting a write token', (value) => {
+    const result = spawnSync('bash', ['-c', validate.run], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        AUTO_APPROVE: value,
+        CLIENT_ID: '123',
+        APP_ID: '',
+      },
+    })
+    expect(result.status).toBe(['false', 'true'].includes(value) ? 0 : 1)
+    expect(manifest.runs.steps[0]).toBe(validate)
+  })
 
   test('reviewer tool grants cannot submit approving reviews', () => {
     const reviewer = parse(
@@ -205,4 +217,43 @@ describe('audited Ladon dependency pins', () => {
       }
     },
   )
+})
+
+describe('manifest omission defaults', () => {
+  test.each(['review', 'setup', 'arbiter'])(
+    '%s cannot enable approval by omission',
+    (name) => {
+      const action = parse(
+        readFileSync(
+          resolve(import.meta.dirname, `../../ladon/${name}/action.yml`),
+          'utf8',
+        ),
+      )
+      expect(action.inputs['auto-approve'].default).toBe('false')
+    },
+  )
+  test('omitted composite input cannot enter the stale reapproval write path', () => {
+    const action = parse(
+      readFileSync(
+        resolve(import.meta.dirname, '../../ladon/review/action.yml'),
+        'utf8',
+      ),
+    )
+    const step = action.runs.steps.find(
+      (s: ActionStep) => s.name === 'Re-approve dismissed stale approval',
+    )
+    const result = spawnSync(
+      'bash',
+      ['-c', `gh() { echo 'API CALLED'; }; ${step.run}`],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          AUTO_APPROVE: action.inputs['auto-approve'].default,
+        },
+      },
+    )
+    expect(result.status).toBe(1)
+    expect(result.stdout).not.toContain('API CALLED')
+  })
 })
