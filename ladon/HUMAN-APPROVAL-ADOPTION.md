@@ -37,6 +37,57 @@ At audit time, review/setup/arbiter floating v1 tags resolved to
 `ab7c8394702dad2244b48143c78b6651cd5215ed`; reviewer v1 resolved to the actions
 base commit above. No tag was moved by this work.
 
+## Follow-up incident evidence and global hold (2026-09-14 UTC)
+
+The original snapshots above are historical. Consumer adoption was refreshed to
+adcp `1467e46117e8d329f4116e548e9290be75d8e3b3` (tree
+`023fac83c8812e6148519ba8a4cfe2a49fbb3070`) and client
+`55829081dae2673f73615af2a4f6f029cddff813` (tree
+`75aa2d649b3234643ec4619ea7b65a8b86d44320`). Existing open PR evidence, including
+adcp #7450/#7462, remains on its recorded older base until independently
+refreshed; this change does not recompute their merge trees.
+
+[adcp #7521](https://github.com/adcontextprotocol/adcp/pull/7521) demonstrates a
+**second, distinct bypass**. Base was
+`36a86d6c4ae5c42e5e2e783d95bdb97b5cb6f614`; head was
+`e680c97e05e69cf3d7b6bf60aed07c42657c420c`. Its only review, Secretariat
+`5200346889`, was COMMENTED at `16:38:41Z` with an explicit Ladon human/CODEOWNERS
+escalation for modified
+`static/schemas/source/compliance/comply-test-controller-{request,response}.json`
+and `REVIEW_REQUIRED`. There were **zero APPROVED reviews**. Author `bokelley`
+merged it himself at `18:02:02Z` as
+`1467e46117e8d329f4116e548e9290be75d8e3b3`; final `auto_merge` was null.
+An escalation comment or optional check cannot stop an author with effective
+merge permission. The precise bypass rule still requires administrator audit.
+
+[adcp-client #2913](https://github.com/adcontextprotocol/adcp-client/pull/2913)
+had only bot approval at exact head
+`bfacfeb66178d161254830faef48f36a5a6a629e`: Secretariat review `5201034616`
+APPROVED at `17:51:07Z`, while `bmilekic` remained requested without reviewing.
+After the coordinator disabled auto-merge and placed it Draft, author `bokelley`
+re-enabled auto-merge at `17:57:24Z`. It merged at `17:59:28Z` as
+`55829081dae2673f73615af2a4f6f029cddff813` (base
+`8ba12c2ace85a88533ce1d56efd35badea51a97c`). Secretariat review `5201137108`
+APPROVED that same head at `18:01:40Z`, **after merge**. The later approval
+cannot supply human evidence or explain the earlier merge; it confirms older
+approval-capable runs can continue writing. Draft/auto-off comments are
+advisory against an author/admin and are not a protection boundary.
+
+Generated #2912 advanced to `1be6b25e8083601f8bf08f1b701435181f33215f` on
+base `55829081dae2673f73615af2a4f6f029cddff813`, and was still Draft/auto-off.
+Coordinator evidence reports npm dist-tags unchanged at rc.36 / latest 13.0.4,
+with no new package published. **Maintain a global release/merge hold** until
+both human-reviewed immutable consumer pins land and an authorized human
+configures and validates an actually required, trusted exact-head human gate.
+PR #29 alone cannot prevent manual author/admin bypass or older runs.
+
+Consumer runtime pins stay at reviewed orchestrator
+`85284cbc297875aa04b2d5afcf7ae833b29f329c`, nested setup/arbiter
+`292a0da93b25c3e9ecfcf5a05763a4206c472c3a`, and reviewer
+`a64a17ba369122d6b3401f614a31df7b8607f043`. Documentation-only updates to this
+PR do not require moving those runtime pins. The consumer configuration tests
+reject missing approval inputs; the shared compatible default remains true.
+
 ## Approval paths and the new boundary
 
 1. The arbiter maps an `approve` model outcome to an `APPROVE` review API call.
@@ -208,3 +259,44 @@ and ruleset changes. The shared action cannot supply repository-wide human
 identity enforcement with its current workflow permissions and event coverage.
 Do not report branch protection fixed until consumer adoption and the
 applicable tag/ruleset changes are actually complete.
+
+### Administrator action and controlled validation after #7521/#2913
+
+An explicitly authorized administrator must export the effective rules for
+main from repository Settings → Rules → Rulesets, inherited organization
+rules, classic protection, CODEOWNERS and every role/App/direct-push bypass.
+Determine the exact permission that allowed #7521's author to merge without any
+approval. Install the separately human-reviewed trusted producer and require
+`Human review / exact head` from its specific App identity; require blocking
+Ladon results under an explicit workflow-modification/high-risk exception
+policy as well. The new consumer `Ladon approval policy` CI job is only a
+configuration/regression check, not this human gate.
+
+The human gate must exclude the PR author, verify **current** collaborator and
+CODEOWNER/team authority, and reject bots/Apps and known automation accounts
+masquerading as users. Make it non-bypassable by ordinary authors, including
+the author role implicated by #7521. Remove broad role/App bypasses or confine
+any emergency override to an independently controlled, logged procedure;
+prevent direct pushes and alternative merge entrypoints from bypassing it.
+No settings change is authorized by this preparation or by green CI.
+
+Recompute and invalidate on head, review/dismissal, base/CODEOWNERS and
+membership/permission changes. Serialize workers and re-read live head,
+review state and authority before publishing; use native stale-dismissal and
+last-push rules too. Status webhooks are asynchronous: do not assert atomic
+review-dismissal/merge safety without evidence. Retain the operational hold
+and an authorized trusted merge procedure if that race is not closed.
+
+Start controlled validation on a non-production branch with matching effective
+protection and no deployment/release hooks. Actual merge attempts require
+separate explicit administrator authority. Prove rejection under ordinary
+author credentials for no review, bot-only approval, COMMENT-only escalation
+(#7521), requested-but-absent review, self/old-head/dismissed approval, lost
+collaborator/CODEOWNER authority, missing/skipped/failed status, API failure,
+stale worker, fork, workflow modification, rebase and merge queue. Exercise
+concurrent push, dismissal and auto-merge. A current-head authorized non-author
+human approval satisfies only the human gate; blocking Ladon findings must
+remain blocking. Then verify actual main's effective rules and producer App;
+a sandbox-only result does not prove main enforcement. Record rule exports,
+exact heads/statuses/reviewer authority, denied merge attempts and a named
+administrator's acceptance before lifting the global hold or promoting tags.
