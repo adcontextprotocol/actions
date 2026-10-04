@@ -194,7 +194,10 @@ runs:
           cat "${PROMPT_PATH}"
           echo "${PROMPT_EOF}"
           echo "review-state-path=${REVIEW_STATE_PATH}"
-          echo "mcp-config-path=${MCP_CONFIG_PATH}"
+          # claude-code-action merges its built-in inline MCP config with this
+          # value. File paths are discarded by that merger; pass compact JSON
+          # so the findings server survives in the initial and resumed runs.
+          echo "mcp-config-json=$(jq -c . "${MCP_CONFIG_PATH}")"
         } >> "${GITHUB_OUTPUT}"
 
     - name: Claude Code review
@@ -224,7 +227,7 @@ runs:
           --model ${{ inputs.model }}
           --max-turns ${{ inputs.max-turns }}
           --add-dir ${{ runner.temp }}
-          --mcp-config '${{ steps.prompt.outputs.mcp-config-path }}'
+          --mcp-config '${{ steps.prompt.outputs.mcp-config-json }}'
           --allowedTools "mcp__github_inline_comment__create_inline_comment,mcp__ladon_findings__record_finding,mcp__ladon_findings__finalize_review,Bash(gh pr view:*),Bash(gh pr diff:*),Read,Glob,Grep"
 
     - name: Inspect persisted review
@@ -277,7 +280,7 @@ runs:
           --model ${{ inputs.model }}
           --max-turns 4
           --resume '${{ steps.claude.outputs.session_id }}'
-          --mcp-config '${{ steps.prompt.outputs.mcp-config-path }}'
+          --mcp-config '${{ steps.prompt.outputs.mcp-config-json }}'
           --allowedTools "mcp__ladon_findings__finalize_review"
 
     - name: Emit findings JSON

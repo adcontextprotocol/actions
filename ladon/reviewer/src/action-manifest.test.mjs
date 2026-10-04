@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
 
@@ -37,5 +39,69 @@ describe('Ladon reviewer action manifest', () => {
       `uses: ${CLAUDE_CODE_ACTION_V1_0_217}`,
     ])
     expect(manifest).not.toContain('/home/runner/.local/bin/claude')
+  })
+
+  test('passes the findings server as inline JSON on the review and retry', () => {
+    // claude-code-action prepends its built-in servers as inline JSON. Its
+    // config merger discards file paths when any inline servers are present.
+    const outputLine = manifest
+      .split('\n')
+      .find((line) => line.trim().startsWith('echo "mcp-config-json='))
+    expect(outputLine).toBeDefined()
+
+    const directory = mkdtempSync(resolve(tmpdir(), 'ladon-mcp-config-'))
+    try {
+      const configPath = resolve(directory, 'findings.json')
+      const config = {
+        mcpServers: {
+          ladon_findings: {
+            command: '/usr/bin/node',
+            args: ['/action/src/server.mjs'],
+            env: { LADON_REVIEW_STATE_PATH: '/tmp/review-state.json' },
+          },
+        },
+      }
+      writeFileSync(configPath, JSON.stringify(config, null, 2))
+      const output = execFileSync('bash', ['-c', outputLine.trim()], {
+        env: { ...process.env, MCP_CONFIG_PATH: configPath },
+        encoding: 'utf8',
+      }).trim()
+      const inline = output.slice('mcp-config-json='.length)
+      expect(JSON.parse(inline)).toEqual(config)
+      expect(inline).not.toContain('\n')
+
+      const configArguments = manifest
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('--mcp-config '))
+      const expression = `${'$'}{{ steps.prompt.outputs.mcp-config-json }}`
+      expect(configArguments).toEqual([
+        `--mcp-config '${expression}'`,
+        `--mcp-config '${expression}'`,
+      ])
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test('the orchestrator pins every Ladon stage to the same immutable revision', () => {
+    const orchestrator = readFileSync(
+      resolve(import.meta.dirname, '../../review/action.yml'),
+      'utf8',
+    )
+    const stages = [
+      ...orchestrator.matchAll(
+        /uses: adcontextprotocol\/actions\/ladon\/(setup|reviewer|arbiter)@([^\s]+)/g,
+      ),
+    ]
+    expect(stages.map(([, stage]) => stage)).toEqual([
+      'setup',
+      'reviewer',
+      'arbiter',
+    ])
+    for (const [, , revision] of stages) {
+      expect(revision).toMatch(/^[a-f0-9]{40}$/)
+    }
+    expect(new Set(stages.map(([, , revision]) => revision)).size).toBe(1)
   })
 })
