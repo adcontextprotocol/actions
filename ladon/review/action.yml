@@ -81,7 +81,9 @@ runs:
 
     - name: Setup
       id: setup
-      uses: adcontextprotocol/actions/ladon/setup@ladon/setup/v1
+      # Pin the full review chain so a pinned orchestrator cannot silently
+      # adopt different setup, reviewer, or arbiter behavior through major tags.
+      uses: adcontextprotocol/actions/ladon/setup@d42450d1f137540250ce59103b07b57cfd058c40
       with:
         github-token: ${{ steps.app-token.outputs.token }}
         ladon-bot-login: ${{ steps.app-token.outputs.app-slug }}[bot]
@@ -117,7 +119,7 @@ runs:
     - name: Reviewer
       if: steps.setup.outputs.should-run == 'true'
       id: reviewer
-      uses: adcontextprotocol/actions/ladon/reviewer@ladon/reviewer/v1
+      uses: adcontextprotocol/actions/ladon/reviewer@d42450d1f137540250ce59103b07b57cfd058c40
       with:
         anthropic-api-key: ${{ inputs.anthropic-api-key }}
         github-token: ${{ steps.app-token.outputs.token }}
@@ -138,7 +140,7 @@ runs:
     - name: Arbiter
       if: steps.setup.outputs.should-run == 'true'
       id: arbiter
-      uses: adcontextprotocol/actions/ladon/arbiter@ladon/arbiter/v1
+      uses: adcontextprotocol/actions/ladon/arbiter@d42450d1f137540250ce59103b07b57cfd058c40
       with:
         anthropic-api-key: ${{ inputs.anthropic-api-key }}
         github-token: ${{ steps.app-token.outputs.token }}

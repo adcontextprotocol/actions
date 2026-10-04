@@ -83,4 +83,25 @@ describe('Ladon reviewer action manifest', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
+
+  test('the orchestrator pins every Ladon stage to the same immutable revision', () => {
+    const orchestrator = readFileSync(
+      resolve(import.meta.dirname, '../../review/action.yml'),
+      'utf8',
+    )
+    const stages = [
+      ...orchestrator.matchAll(
+        /uses: adcontextprotocol\/actions\/ladon\/(setup|reviewer|arbiter)@([^\s]+)/g,
+      ),
+    ]
+    expect(stages.map(([, stage]) => stage)).toEqual([
+      'setup',
+      'reviewer',
+      'arbiter',
+    ])
+    for (const [, , revision] of stages) {
+      expect(revision).toMatch(/^[a-f0-9]{40}$/)
+    }
+    expect(new Set(stages.map(([, , revision]) => revision)).size).toBe(1)
+  })
 })
