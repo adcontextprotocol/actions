@@ -24,6 +24,8 @@ The committed regression suite verifies that:
 - the historical PR 6883 exhaustion is classified as infrastructure failure.
 - adcp-client PR 2721's `error_max_structured_output_retries` incident is
   retained with its turn, duration, cost, and permission-denial telemetry.
+- adcp-go PR 558's zero-turn resumed finalization retry is classified as
+  infrastructure failure, and a fresh-session finalization recovers it.
 - live input bundles are content-addressed and confined to an isolated
   workspace; and
 - the Claude adapter captures ordered MCP calls directly and performs at most
@@ -124,8 +126,12 @@ The Claude adapter mirrors the production reviewer contract: it runs an exact
 model ID through Claude Code, exposes only `Read`, `record_finding`, and
 `finalize_review`, and reads the ordered calls from Ladon's MCP audit log. It
 does not parse Claude's final response for findings. If the persisted state is
-not finalized and Claude returned a session ID, it resumes that session once
-with the compact finalization-only prompt and a four-turn limit.
+not finalized, it starts one fresh finalization-only session with a four-turn
+limit. That session never resumes the review session: like production, its
+prompt carries the initial run's result text, ordered tool calls, permission
+denials, and recorded findings as fenced untrusted evidence, and it may call
+only `finalize_review`. (A resumed retry in production ended without a model
+call; see the `adcp-go-pr-558-noop-finalization-resume` replay case.)
 
 The adapter uses Claude Code's reproducible `--bare` mode and therefore requires
 `ANTHROPIC_API_KEY`. It removes GitHub and Secretariat credentials from the

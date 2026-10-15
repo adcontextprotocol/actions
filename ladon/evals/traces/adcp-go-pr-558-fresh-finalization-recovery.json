@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "fixture_id": "adcp-go-pr-558-noop-finalization-resume",
+  "provider": "deterministic-replay",
+  "model": "persisted-tool-state",
+  "attempts": [
+    {
+      "kind": "review",
+      "result": {
+        "subtype": "success",
+        "num_turns": 17
+      },
+      "tool_calls": []
+    },
+    {
+      "kind": "finalization",
+      "result": {
+        "subtype": "success",
+        "num_turns": 2
+      },
+      "tool_calls": [
+        {
+          "name": "finalize_review",
+          "arguments": {
+            "summary": "The reviewer's final message reports complete coverage of every changed file with no blocking findings.",
+            "analysis_complete": true
+          }
+        }
+      ]
+    }
+  ],
+  "outcome": "escalate"
+}

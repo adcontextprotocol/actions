@@ -5,6 +5,10 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
+  buildFinalizationPrompt,
+  summarizeToolInput,
+} from '@adcp/ladon-reviewer/finalization'
+import {
   createReviewState,
   readReviewState,
   writeReviewState,
@@ -12,12 +16,41 @@ import {
 import { materializeBundle } from '../bundle.mjs'
 import { validateFixture } from '../replay.mjs'
 
-const finalizationPrompt = `Finalize the existing Ladon review now. Do not inspect files, run commands,
-add findings, or repeat the review. Call mcp__ladon_findings__finalize_review
-exactly once with a concise 1-3 sentence summary of the completed analysis.
-Set analysis_complete true only if the prior session completed all required
-coverage; otherwise set it false so the review remains fail-closed. Stop
-immediately after the tool call.`
+const MAX_RESULT_TEXT_CHARS = 6000
+
+// Mirrors the production reviewer: the finalization retry is a fresh session
+// that receives the initial run's evidence, not a resumed session.
+export function finalizationEvidence(run, toolCalls) {
+  const payload = run.payload ?? {}
+  const denials = Array.isArray(payload.permission_denials)
+    ? payload.permission_denials
+    : []
+  return {
+    result: {
+      subtype: payload.subtype ?? null,
+      is_error: payload.is_error ?? null,
+      num_turns: payload.num_turns ?? null,
+      stop_reason: payload.stop_reason ?? null,
+      terminal_reason: payload.terminal_reason ?? null,
+      text:
+        typeof payload.result === 'string'
+          ? payload.result.slice(0, MAX_RESULT_TEXT_CHARS)
+          : null,
+    },
+    final_messages: [],
+    tool_calls_total: toolCalls.length,
+    tool_calls: toolCalls.map((call) => ({
+      name: String(call.name),
+      input: summarizeToolInput(call.arguments),
+      error: false,
+    })),
+    permission_denials_total: denials.length,
+    permission_denials: denials.map((denial) => ({
+      name: String(denial?.tool_name ?? 'unknown'),
+      input: summarizeToolInput(denial?.tool_input),
+    })),
+  }
+}
 
 function readStdin() {
   return new Promise((resolvePromise, rejectPromise) => {
@@ -169,7 +202,6 @@ function claudeArguments({
   mcpConfigPath,
   maxTurns,
   maxBudgetUsd,
-  resume,
   finalizationOnly,
 }) {
   const allowedTools = finalizationOnly
@@ -198,7 +230,6 @@ function claudeArguments({
     '--add-dir',
     root,
   ]
-  if (resume) args.push('--resume', resume)
   args.push(prompt)
   return args
 }
@@ -284,18 +315,19 @@ export async function runClaudeAdapter(
     ]
 
     const state = readReviewState(statePath)
-    const sessionId = initialRun.payload?.session_id
-    if (state.finalization === null && sessionId) {
+    if (state.finalization === null) {
       const retryRun = await runClaude(
         binary,
         claudeArguments({
           model: request.model,
-          prompt: finalizationPrompt,
+          prompt: buildFinalizationPrompt(
+            finalizationEvidence(initialRun, initialCalls),
+            state,
+          ),
           root,
           mcpConfigPath,
           maxTurns: 4,
           maxBudgetUsd: retryMaxBudgetUsd,
-          resume: sessionId,
           finalizationOnly: true,
         }),
         { cwd: root, timeoutMs: validatedTimeoutMs },

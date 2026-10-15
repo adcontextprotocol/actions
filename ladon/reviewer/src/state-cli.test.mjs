@@ -47,6 +47,30 @@ describe('review state inspection', () => {
     })
   })
 
+  test('counts permission denials from the Agent SDK result array', () => {
+    const { statePath, executionPath } = harness()
+    writeFileSync(
+      executionPath,
+      JSON.stringify([
+        {
+          type: 'result',
+          subtype: 'success',
+          num_turns: 17,
+          permission_denials: [
+            { tool_name: 'Bash', tool_input: { command: 'wc -l d.patch' } },
+            { tool_name: 'Bash', tool_input: { command: 'head d.patch' } },
+          ],
+        },
+      ]),
+    )
+
+    expect(inspectReviewState(statePath, executionPath)).toMatchObject({
+      status: 'needs_finalization',
+      turns: 17,
+      permission_denials_count: 2,
+    })
+  })
+
   test('reports a complete explicit finalization independently of final text', () => {
     const state = finalizeReview(createReviewState(), {
       summary: 'Review coverage completed.',
