@@ -329,4 +329,41 @@ describe('deterministic Ladon replay', () => {
       },
     })
   })
+
+  test('classifies the adcp-go PR 558 no-op resume and its fresh-session recovery', () => {
+    const root = join(import.meta.dirname, '..')
+    const load = (path) => JSON.parse(readFileSync(join(root, path), 'utf8'))
+    const historicalFixture = load(
+      'fixtures/adcp-go-pr-558-noop-finalization-resume.json',
+    )
+    const noopTrace = load(
+      'traces/adcp-go-pr-558-noop-finalization-resume.json',
+    )
+    const recoveryTrace = load(
+      'traces/adcp-go-pr-558-fresh-finalization-recovery.json',
+    )
+
+    // The resumed retry ran zero turns and called nothing: infrastructure
+    // failure, never an approval.
+    expect(gradeReplay(historicalFixture, noopTrace)).toMatchObject({
+      passed: false,
+      checks: { fail_closed: true, bounded_retry: true, completion: false },
+      metrics: { retries: 1, false_approvals: 0, infrastructure_failures: 1 },
+      replay: {
+        state_status: 'needs_finalization',
+        infrastructure_failure: true,
+        approval_eligible: false,
+        telemetry: [
+          { subtype: 'success', num_turns: 17 },
+          { subtype: 'success', num_turns: 0, total_cost_usd: 0 },
+        ],
+      },
+    })
+    // A fresh finalization session that calls finalize_review completes.
+    expect(gradeReplay(historicalFixture, recoveryTrace)).toMatchObject({
+      passed: true,
+      checks: { fail_closed: true, bounded_retry: true, completion: true },
+      metrics: { retries: 1, false_approvals: 0 },
+    })
+  })
 })

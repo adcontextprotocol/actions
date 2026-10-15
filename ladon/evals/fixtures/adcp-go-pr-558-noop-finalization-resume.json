@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "adcp-go-pr-558-noop-finalization-resume",
+  "description": "Historical Ladon regression on a ~14k-line PR: the review ended successfully without finalize_review, and the resumed finalization retry ended without a model call.",
+  "source": {
+    "repository": "adcontextprotocol/adcp-go",
+    "pr_number": 558,
+    "base_sha": "539631ed07ed64b4fda225e28fccf6371f5e9e21",
+    "head_sha": "f82c18208d17745d0ad07c84b3bc9c81e2cb2108",
+    "run_url": "https://github.com/adcontextprotocol/adcp-go/actions/runs/38724301129"
+  },
+  "expected": {
+    "required_findings": [],
+    "forbidden_outcomes": ["approve"],
+    "allow_additional_findings": true,
+    "require_completion": true,
+    "max_tool_errors": 0
+  }
+}

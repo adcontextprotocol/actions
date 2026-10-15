@@ -22,7 +22,7 @@ describe('Ladon reviewer manifest', () => {
     ),
   ) as { runs: { steps: ActionStep[] } }
 
-  test('persists findings through narrow MCP tools and retries finalization once', () => {
+  test('persists findings through narrow MCP tools and retries finalization once in a fresh session', () => {
     const assemblePrompt = manifest.runs.steps.find(
       (step) => step.name === 'Assemble prompt',
     )
@@ -31,6 +31,9 @@ describe('Ladon reviewer manifest', () => {
     )
     const inspectState = manifest.runs.steps.find(
       (step) => step.name === 'Inspect persisted review',
+    )
+    const prepareRetry = manifest.runs.steps.find(
+      (step) => step.name === 'Prepare finalization retry',
     )
     const retrySteps = manifest.runs.steps.filter(
       (step) => step.name === 'Finalization retry',
@@ -68,10 +71,18 @@ describe('Ladon reviewer manifest', () => {
     )
     expect(inspectState?.if).toBe(githubExpression('always()'))
     expect(retrySteps).toHaveLength(1)
-    expect(retrySteps[0]?.if).toContain(
+    expect(prepareRetry?.if).toContain(
       "steps.inspect.outputs.needs-finalization == 'true'",
     )
-    expect(retrySteps[0]?.with?.claude_args).toContain('--resume')
+    expect(retrySteps[0]?.if).toContain(
+      "steps.finalization-prompt.outcome == 'success'",
+    )
+    // The retry is a fresh session fed the initial run's evidence; a resumed
+    // session ended without a model call in CI (adcp-go#558).
+    expect(retrySteps[0]?.with?.claude_args).not.toContain('--resume')
+    expect(retrySteps[0]?.with?.prompt).toBe(
+      githubExpression('steps.finalization-prompt.outputs.prompt'),
+    )
     expect(retrySteps[0]?.with?.claude_args).toContain('--max-turns 4')
     expect(retrySteps[0]?.with?.claude_args).toContain(
       'mcp__ladon_findings__finalize_review',

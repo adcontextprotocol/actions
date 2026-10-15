@@ -1,6 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import {
+  buildFinalizationPrompt,
+  extractReviewEvidence,
+} from './finalization.mjs'
+import {
   buildFindingsPayload,
   createReviewState,
   readReviewState,
@@ -39,13 +43,32 @@ export function inspectReviewState(statePath, executionPath) {
     turns: execution?.num_turns ?? null,
     duration_ms: execution?.duration_ms ?? null,
     total_cost_usd: execution?.total_cost_usd ?? null,
-    permission_denials_count: execution?.permission_denials_count ?? null,
+    permission_denials_count: Array.isArray(execution?.permission_denials)
+      ? execution.permission_denials.length
+      : (execution?.permission_denials_count ?? null),
   }
+}
+
+function readExecutionMessages(executionPath) {
+  if (!executionPath) return []
+  try {
+    const parsed = JSON.parse(readFileSync(executionPath, 'utf8'))
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+export function finalizationPrompt(statePath, executionPath) {
+  return buildFinalizationPrompt(
+    extractReviewEvidence(readExecutionMessages(executionPath)),
+    readReviewState(statePath),
+  )
 }
 
 function usage() {
   throw new Error(
-    'usage: state-cli.mjs init <state> | inspect <state> [execution] | emit <state>',
+    'usage: state-cli.mjs init <state> | inspect <state> [execution] | emit <state> | finalization-prompt <state> [execution]',
   )
 }
 
@@ -62,6 +85,8 @@ export function runCli(args = process.argv.slice(2)) {
     process.stdout.write(
       `${JSON.stringify(buildFindingsPayload(readReviewState(statePath)))}\n`,
     )
+  } else if (command === 'finalization-prompt') {
+    process.stdout.write(finalizationPrompt(statePath, executionPath))
   } else {
     usage()
   }

@@ -5,15 +5,17 @@
   "type": "module",
   "private": true,
   "exports": {
-    "./state": "./src/state.mjs"
+    "./state": "./src/state.mjs",
+    "./finalization": "./src/finalization.mjs"
   },
   "scripts": {
-    "build": "node --check src/state.mjs && node --check src/server.mjs && node --check src/state-cli.mjs",
+    "build": "node --check src/state.mjs && node --check src/server.mjs && node --check src/state-cli.mjs && node --check src/finalization.mjs",
     "format": "../../node_modules/.bin/biome format --write src",
     "test": "vitest run",
-    "type-check": "node --check src/state.mjs && node --check src/server.mjs && node --check src/state-cli.mjs"
+    "type-check": "node --check src/state.mjs && node --check src/server.mjs && node --check src/state-cli.mjs && node --check src/finalization.mjs"
   },
   "devDependencies": {
-    "vitest": "^4.1.1"
+    "vitest": "^4.1.1",
+    "yaml": "^2.8.3"
   }
 }

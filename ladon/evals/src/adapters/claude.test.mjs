@@ -34,10 +34,26 @@ if (process.env.GITHUB_TOKEN) {
 const configPath = args[args.indexOf('--mcp-config') + 1]
 const config = JSON.parse(readFileSync(configPath, 'utf8'))
 const server = config.mcpServers.ladon_findings
-const retry = args.includes('--resume')
+const prompt = args.at(-1)
+const retry = prompt.startsWith('# Ladon review finalization')
+if (args.includes('--resume')) {
+  process.stderr.write('Finalization retry must be a fresh session')
+  process.exit(12)
+}
 if (retry && args[args.indexOf('--max-turns') + 1] !== '4') {
   process.stderr.write('Finalization retry must allow four turns')
   process.exit(11)
+}
+if (
+  retry &&
+  !(
+    prompt.includes('Reviewed src/retry.ts completely.') &&
+    prompt.includes('[medium] src/retry.ts:3 — Retry loop is unbounded') &&
+    prompt.includes('1. record_finding line=3 severity="medium"')
+  )
+) {
+  process.stderr.write('Finalization prompt is missing the initial evidence')
+  process.exit(13)
 }
 const finding = {
   severity: 'medium',
@@ -82,6 +98,7 @@ if (result.status !== 0) {
 }
 process.stdout.write(JSON.stringify({
   subtype: 'success',
+  result: retry ? 'Finalized.' : 'Reviewed src/retry.ts completely.',
   session_id: 'test-session',
   num_turns: 1,
   duration_ms: 25,
@@ -117,7 +134,7 @@ process.exitCode = 1
 }
 
 describe('Claude live eval adapter', () => {
-  test('captures MCP calls and performs one finalization-only retry', async () => {
+  test('captures MCP calls and performs one fresh finalization-only retry', async () => {
     const inputFixture = fixture()
     const previousToken = process.env.GITHUB_TOKEN
     process.env.GITHUB_TOKEN = 'must-not-reach-claude'
