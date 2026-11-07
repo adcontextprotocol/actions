@@ -1,0 +1,15 @@
+{
+  "setup": {
+    "default": ". \"${NVM_DIR:-$HOME/.nvm}/nvm.sh\" || exit 1\nnvm install || exit 1\nnvm use || exit 1\n[ \"$(node -v)\" = \"$(nvm version \"$(cat .nvmrc)\")\" ] || { echo \"Node $(node -v) does not match .nvmrc $(cat .nvmrc)\" >&2; false; } || exit 1\nnpm ci || exit 1",
+    "macos": null,
+    "linux": null,
+    "windows": null
+  },
+  "teardown": {
+    "default": "",
+    "macos": null,
+    "linux": null,
+    "windows": null
+  },
+  "updatedAt": 1793934266992
+}
